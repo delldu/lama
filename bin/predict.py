@@ -33,7 +33,7 @@ from saicinpainting.training.trainers import load_checkpoint
 from saicinpainting.utils import register_debug_signal_handlers
 
 LOGGER = logging.getLogger(__name__)
-
+import pdb
 
 @hydra.main(config_path='../configs/prediction', config_name='default.yaml')
 def main(predict_config: OmegaConf):
@@ -57,6 +57,7 @@ def main(predict_config: OmegaConf):
         model = load_checkpoint(train_config, checkpoint_path, strict=False, map_location='cpu')
         model.freeze()
         model.to(device)
+        # torch.save(model.state_dict(), "/tmp/lama.pth")
 
         if not predict_config.indir.endswith('/'):
             predict_config.indir += '/'
@@ -73,11 +74,17 @@ def main(predict_config: OmegaConf):
 
                 batch = move_to_device(default_collate([dataset[img_i]]), device)
                 batch['mask'] = (batch['mask'] > 0) * 1
+
+                # batch['image'].size() -- [1, 3, 1000, 1504], batch['mask'].size() -- [1. 1. 1000, 15004]
                 batch = model(batch)
+                #  batch.keys() -- ['image', 'mask', 'predicted_image', 'inpainted', 'mask_for_losses']
+                # predict_config.out_key -- 'inpainted'
+                batch[predict_config.out_key] = batch[predict_config.out_key] * (1.0 - 0.05 * batch['mask'])
                 cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
 
                 cur_res = np.clip(cur_res * 255, 0, 255).astype('uint8')
                 cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
+                #  cur_out_fname -- outputs/000068_mask.png
                 cv2.imwrite(cur_out_fname, cur_res)
     except KeyboardInterrupt:
         LOGGER.warning('Interrupted by user')
