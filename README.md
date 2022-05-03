@@ -38,6 +38,7 @@ LaMa generalizes surprisingly well to much higher resolutions (~2k❗️) than i
 - Integrated to [Huggingface Spaces](https://huggingface.co/spaces) with [Gradio](https://github.com/gradio-app/gradio). See demo: [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/akhaliq/lama) by [@AK391](https://github.com/AK391)
 - Telegram bot [@MagicEraserBot](https://t.me/MagicEraserBot) by [@Moldoteck](https://github.com/Moldoteck), [code](https://github.com/Moldoteck/MagicEraser)
 - [Auto-LaMa](https://github.com/andy971022/auto-lama) = DE:TR object detection + LaMa inpainting by [@andy971022](https://github.com/andy971022)
+- [LAMA-Magic-Eraser-Local](https://github.com/zhaoyun0071/LAMA-Magic-Eraser-Local) = a standalone inpainting application built with PyQt5 by [@zhaoyun0071](https://github.com/zhaoyun0071)
 
 # Environment setup
 
@@ -116,7 +117,7 @@ unzip LaMa_test_images.zip
  <summary>OR prepare your data:</summary>
 1) Create masks named as `[images_name]_maskXXX[image_suffix]`, put images and masks in the same folder. 
 
-- You can use the [script](#test_datasets) for random masks generation. 
+- You can use the [script](https://github.com/saic-mdal/lama/blob/main/bin/gen_mask_dataset.py) for random masks generation. 
 - Check the format of the files:
     ```    
     image1_mask001.png
