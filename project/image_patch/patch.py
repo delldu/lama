@@ -47,7 +47,18 @@ class FourierUnit(nn.Module):
         ffted = self.conv_layer(ffted)  # (batch, c*2, h, w/2+1)
         ffted = self.relu(self.bn(ffted))
 
-        ffted = ffted.view((batch, -1, 2, ) + ffted.size()[2:]).permute(0, 1, 3, 4, 2).contiguous()
+        ffted = (
+            ffted.view(
+                (
+                    batch,
+                    -1,
+                    2,
+                )
+                + ffted.size()[2:]
+            )
+            .permute(0, 1, 3, 4, 2)
+            .contiguous()
+        )
         # (batch,c, t, h, w/2+1, 2)
         ffted = torch.complex(ffted[..., 0], ffted[..., 1])
 
@@ -356,7 +367,8 @@ class FFCResnetBlock(nn.Module):
     def __init__(self, dim, norm_layer, activation_layer=nn.ReLU, dilation=1):
         super().__init__()
         self.conv1 = REST_FFC_BN_ACT(
-            dim, dim,
+            dim,
+            dim,
             kernel_size=3,
             padding=dilation,
             dilation=dilation,
@@ -364,7 +376,8 @@ class FFCResnetBlock(nn.Module):
             activation_layer=activation_layer,
         )
         self.conv2 = REST_FFC_BN_ACT(
-            dim, dim,
+            dim,
+            dim,
             kernel_size=3,
             padding=dilation,
             dilation=dilation,

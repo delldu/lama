@@ -32,10 +32,10 @@ def load_model(model, path):
         raise IOError(f"Model checkpoint '{path}' doesn't exist.")
 
     # state_dict = torch.load(path, map_location=lambda storage, loc: storage)
-    state_dict = torch.load(path, map_location=torch.device('cpu'))
+    state_dict = torch.load(path, map_location=torch.device("cpu"))
     target_state_dict = model.state_dict()
     for n, p in state_dict.items():
-        n = n.replace('generator.', '')
+        n = n.replace("generator.", "")
         if n in target_state_dict.keys():
             target_state_dict[n].copy_(p)
         else:
@@ -65,14 +65,16 @@ def get_model():
 
     return model, device
 
+
 def pad_tensor(tensor, times=8):
     B, C, H, W = tensor.shape
     Hnew = int(times * math.ceil(H / times))
     Wnew = int(times * math.ceil(W / times))
     Bottom = Hnew - H
     Right = Wnew - W
-    PadDim = (0, Right, 0, Bottom) # l, r, t, b
-    return F.pad(tensor, pad=PadDim, mode='reflect')
+    PadDim = (0, Right, 0, Bottom)  # l, r, t, b
+    return F.pad(tensor, pad=PadDim, mode="reflect")
+
 
 def model_forward(model, device, input_tensor):
     H, W = input_tensor.size(2), input_tensor.size(3)
@@ -80,6 +82,7 @@ def model_forward(model, device, input_tensor):
     with torch.no_grad():
         output_tensor = todos.model.forward(model, device, input_tensor)
     return output_tensor[:, :, 0:H, 0:W]
+
 
 def image_client(name, input_files, output_dir):
     redo = redos.Redos(name)
@@ -129,7 +132,7 @@ def image_predict(input_files, output_dir):
         input_tensor = todos.data.load_rgba_tensor(filename)
         input_mask = (input_tensor[:, 3:4, :, :] < 0.9).float()
         input_content = input_tensor[:, 0:3, :, :] * (1.0 - input_mask)
-        input_tensor = torch.cat((input_content, input_mask), dim = 1)
+        input_tensor = torch.cat((input_content, input_mask), dim=1)
 
         # pytorch recommand clone.detach instead of torch.Tensor(input_tensor)
         orig_tensor = input_tensor.clone().detach()
