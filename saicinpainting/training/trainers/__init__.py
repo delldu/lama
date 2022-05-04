@@ -1,7 +1,7 @@
 import logging
 import torch
 from saicinpainting.training.trainers.default import DefaultInpaintingTrainingModule
-
+import pdb
 
 def get_training_model_class(kind):
     if kind == 'default':
@@ -22,9 +22,11 @@ def make_training_model(config):
     return cls(config, **kwargs)
 
 
+
 def load_checkpoint(train_config, path, map_location='cuda', strict=True):
     model: torch.nn.Module = make_training_model(train_config)
     state = torch.load(path, map_location=map_location)
+    # xxxx8888
     model.load_state_dict(state['state_dict'], strict=strict)
     model.on_load_checkpoint(state)
     return model

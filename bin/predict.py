@@ -79,7 +79,8 @@ def main(predict_config: OmegaConf):
                 batch = model(batch)
                 #  batch.keys() -- ['image', 'mask', 'predicted_image', 'inpainted', 'mask_for_losses']
                 # predict_config.out_key -- 'inpainted'
-                batch[predict_config.out_key] = batch[predict_config.out_key] * (1.0 - 0.05 * batch['mask'])
+
+                # batch[predict_config.out_key] = batch[predict_config.out_key] * (1.0 - 0.5 * batch['mask'])
                 cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
 
                 unpad_to_size = batch.get('unpad_to_size', None)
@@ -91,6 +92,8 @@ def main(predict_config: OmegaConf):
                 cur_res = cv2.cvtColor(cur_res, cv2.COLOR_RGB2BGR)
                 #  cur_out_fname -- outputs/000068_mask.png
                 cv2.imwrite(cur_out_fname, cur_res)
+
+                print(mask_fname)
     except KeyboardInterrupt:
         LOGGER.warning('Interrupted by user')
     except Exception as ex:

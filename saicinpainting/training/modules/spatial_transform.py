@@ -7,6 +7,8 @@ from kornia.geometry.transform import rotate
 class LearnableSpatialTransformWrapper(nn.Module):
     def __init__(self, impl, pad_coef=0.5, angle_init_range=80, train_angle=True):
         super().__init__()
+        print("LearnableSpatialTransformWrapper train_angle: ", train_angle)
+
         self.impl = impl
         self.angle = torch.rand(1) * angle_init_range
         if train_angle:
@@ -15,8 +17,10 @@ class LearnableSpatialTransformWrapper(nn.Module):
 
     def forward(self, x):
         if torch.is_tensor(x):
+            print("LearnableSpatialTransformWrapper x is_tensor")
             return self.inverse_transform(self.impl(self.transform(x)), x)
         elif isinstance(x, tuple):
+            print("LearnableSpatialTransformWrapper x tuple")
             x_trans = tuple(self.transform(elem) for elem in x)
             y_trans = self.impl(x_trans)
             return tuple(self.inverse_transform(elem, orig_x) for elem, orig_x in zip(y_trans, x))

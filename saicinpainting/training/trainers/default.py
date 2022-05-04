@@ -12,6 +12,7 @@ from saicinpainting.training.trainers.base import BaseInpaintingTrainingModule, 
 from saicinpainting.utils import add_prefix_to_keys, get_ramp
 
 LOGGER = logging.getLogger(__name__)
+import pdb
 
 
 def make_constant_area_crop_batch(batch, **kwargs):
@@ -45,6 +46,7 @@ class DefaultInpaintingTrainingModule(BaseInpaintingTrainingModule):
             self.fake_fakes_gen = FakeFakesGenerator(**(fake_fakes_generator_kwargs or {}))
 
     def forward(self, batch):
+
         if self.training and self.rescale_size_getter is not None:
             cur_size = self.rescale_size_getter(self.global_step)
             batch['image'] = F.interpolate(batch['image'], size=cur_size, mode='bilinear', align_corners=False)
