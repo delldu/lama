@@ -10,7 +10,7 @@ import pdb
 
 
 class FourierUnit(nn.Module):
-    def __init__(self, in_channels, out_channels, groups=1, ffc3d=False, fft_norm="ortho"):
+    def __init__(self, in_channels, out_channels, groups=1, ffc3d=False):
         super(FourierUnit, self).__init__()
         self.groups = groups
 
@@ -27,14 +27,13 @@ class FourierUnit(nn.Module):
         self.relu = torch.nn.ReLU(inplace=True)
 
         self.ffc3d = ffc3d
-        self.fft_norm = fft_norm
 
     def forward(self, x):
         batch = x.shape[0]
 
         # fft_dim = (-3, -2, -1) if self.ffc3d else (-2, -1)
         fft_dim = (-2, -1)
-        ffted = torch.fft.rfftn(x, dim=fft_dim, norm=self.fft_norm)
+        ffted = torch.fft.rfftn(x, dim=fft_dim, norm="ortho")
         ffted = torch.stack((ffted.real, ffted.imag), dim=-1)
         ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # (batch, c, 2, h, w/2+1)
         ffted = ffted.view(
@@ -48,24 +47,14 @@ class FourierUnit(nn.Module):
         ffted = self.conv_layer(ffted)  # (batch, c*2, h, w/2+1)
         ffted = self.relu(self.bn(ffted))
 
-        ffted = (
-            ffted.view(
-                (
-                    batch,
-                    -1,
-                    2,
-                )
-                + ffted.size()[2:]
-            )
-            .permute(0, 1, 3, 4, 2)
-            .contiguous()
-        )  # (batch,c, t, h, w/2+1, 2)
+        ffted = ffted.view((batch, -1, 2, ) + ffted.size()[2:]).permute(0, 1, 3, 4, 2).contiguous()
+        # (batch,c, t, h, w/2+1, 2)
         ffted = torch.complex(ffted[..., 0], ffted[..., 1])
 
         # ifft_shape_slice = x.shape[-3:] if self.ffc3d else x.shape[-2:]
         ifft_shape_slice = x.shape[-2:]
 
-        output = torch.fft.irfftn(ffted, s=ifft_shape_slice, dim=fft_dim, norm=self.fft_norm)
+        output = torch.fft.irfftn(ffted, s=ifft_shape_slice, dim=fft_dim, norm="ortho")
 
         return output
 
@@ -367,8 +356,7 @@ class FFCResnetBlock(nn.Module):
     def __init__(self, dim, norm_layer, activation_layer=nn.ReLU, dilation=1):
         super().__init__()
         self.conv1 = REST_FFC_BN_ACT(
-            dim,
-            dim,
+            dim, dim,
             kernel_size=3,
             padding=dilation,
             dilation=dilation,
@@ -376,8 +364,7 @@ class FFCResnetBlock(nn.Module):
             activation_layer=activation_layer,
         )
         self.conv2 = REST_FFC_BN_ACT(
-            dim,
-            dim,
+            dim, dim,
             kernel_size=3,
             padding=dilation,
             dilation=dilation,
@@ -411,8 +398,6 @@ class FFCResNetGenerator(nn.Module):
         n_blocks=18,
         norm_layer=nn.BatchNorm2d,
         activation_layer=nn.ReLU,
-        up_norm_layer=nn.BatchNorm2d,
-        up_activation=nn.ReLU(True),
         max_features=1024,
     ):
         assert n_blocks >= 0
@@ -500,8 +485,8 @@ class FFCResNetGenerator(nn.Module):
                     padding=1,
                     output_padding=1,
                 ),
-                up_norm_layer(min(max_features, int(ngf * mult / 2))),
-                up_activation,
+                nn.BatchNorm2d(min(max_features, int(ngf * mult / 2))),
+                nn.ReLU(True),
             ]
 
         model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
