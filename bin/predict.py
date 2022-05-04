@@ -93,7 +93,9 @@ def main(predict_config: OmegaConf):
                 #  cur_out_fname -- outputs/000068_mask.png
                 cv2.imwrite(cur_out_fname, cur_res)
 
-                print(mask_fname)
+                # print(mask_fname)
+                # pdb.set_trace()
+                
     except KeyboardInterrupt:
         LOGGER.warning('Interrupted by user')
     except Exception as ex:

@@ -38,7 +38,8 @@ class FourierUnit(nn.Module):
     def forward(self, x):
         batch = x.shape[0]
 
-        fft_dim = (-3, -2, -1) if self.ffc3d else (-2, -1)
+        # fft_dim = (-3, -2, -1) if self.ffc3d else (-2, -1)
+        fft_dim = (-2, -1)
         ffted = torch.fft.rfftn(x, dim=fft_dim, norm=self.fft_norm)
         ffted = torch.stack((ffted.real, ffted.imag), dim=-1)
         ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # (batch, c, 2, h, w/2+1)
@@ -52,7 +53,9 @@ class FourierUnit(nn.Module):
             0, 1, 3, 4, 2).contiguous()  # (batch,c, t, h, w/2+1, 2)
         ffted = torch.complex(ffted[..., 0], ffted[..., 1])
 
-        ifft_shape_slice = x.shape[-3:] if self.ffc3d else x.shape[-2:]
+        # ifft_shape_slice = x.shape[-3:] if self.ffc3d else x.shape[-2:]
+        ifft_shape_slice = x.shape[-2:]
+
         output = torch.fft.irfftn(ffted, s=ifft_shape_slice, dim=fft_dim, norm=self.fft_norm)
 
         return output
@@ -200,45 +203,19 @@ class START_REST_FFC(nn.Module):
         in_cl = in_channels - in_cg
         out_cg = int(out_channels * ratio_gout)
         out_cl = out_channels - out_cg
-        #groups_g = 1 if groups == 1 else int(groups * ratio_gout)
-        #groups_l = 1 if groups == 1 else groups - groups_g
 
         self.ratio_gin = ratio_gin
         self.ratio_gout = ratio_gout
-        # print(" ###### REST_FFC self.ratio_gin, self.ratio_gout --", self.ratio_gin, self.ratio_gout)
-        # print(" ###### REST_FFC in_cl, out_cl --", in_cl, out_cl)
-        # print(" ###### REST_FFC in_cg, out_cg --", in_cg, out_cg)
-
-        module = nn.Identity if in_cl == 0 or out_cl == 0 else nn.Conv2d
-        self.convl2l = module(in_cl, out_cl, kernel_size,
+        self.convl2l = nn.Conv2d(in_cl, out_cl, kernel_size,
                               stride, padding, dilation, groups, bias, padding_mode=padding_type)
-        module = nn.Identity if in_cl == 0 or out_cg == 0 else nn.Conv2d
-        self.convl2g = module(in_cl, out_cg, kernel_size,
+        self.convl2g = nn.Conv2d(in_cl, out_cg, kernel_size,
                               stride, padding, dilation, groups, bias, padding_mode=padding_type)
-
-        module = nn.Identity if in_cg == 0 or out_cl == 0 else nn.Conv2d
-        self.convg2l = module(in_cg, out_cl, kernel_size,
-                              stride, padding, dilation, groups, bias, padding_mode=padding_type)
-
-        module = nn.Identity if in_cg == 0 or out_cg == 0 else SpectralTransform
-        self.convg2g = module(
-            in_cg, out_cg, stride, 1 if groups == 1 else groups // 2)
 
 
     def forward(self, x: Tuple[torch.Tensor, int]) -> Tuple[torch.Tensor, torch.Tensor]:
-        # xxxx8888
-        x_l, x_g = x if type(x) is tuple else (x, 0)
-        out_xl, out_xg = x_l, 0
-
-        g2l_gate, l2g_gate = 1, 1
-
-        if self.ratio_gout != 1: # True
-            out_xl = self.convl2l(x_l) + self.convg2l(x_g) * g2l_gate
-        if self.ratio_gout != 0:
-            out_xg = self.convl2g(x_l) * l2g_gate + self.convg2g(x_g)
-
-        # print("--- REST_FFC type(x_g)", type(x), type(x_g))
-
+        x_l, x_g = x
+        out_xl = self.convl2l(x_l)
+        out_xg = self.convl2g(x_l)
         return (out_xl, out_xg)
 
 
@@ -250,35 +227,20 @@ class START_REST_FFC_BN_ACT(nn.Module):
                  norm_layer=nn.BatchNorm2d, activation_layer=nn.Identity,
                  padding_type='reflect'):
         super(START_REST_FFC_BN_ACT, self).__init__()
-        # kargs -- {}
 
         self.ffc = START_REST_FFC(in_channels, out_channels, kernel_size,
                        ratio_gin, ratio_gout, stride, padding, dilation,
                        groups, bias, padding_type=padding_type)
-        lnorm = nn.Identity if ratio_gout == 1 else norm_layer
-        gnorm = nn.Identity if ratio_gout == 0 else norm_layer
         global_channels = int(out_channels * ratio_gout)
-        self.bn_l = lnorm(out_channels - global_channels)
-        self.bn_g = gnorm(global_channels)
-
-        lact = nn.Identity if ratio_gout == 1 else activation_layer
-        gact = nn.Identity if ratio_gout == 0 else activation_layer
-        self.act_l = lact(inplace=True)
-        self.act_g = gact(inplace=True)
+        self.bn_l = norm_layer(out_channels - global_channels)
+        self.bn_g = norm_layer(global_channels)
+        self.act_l = activation_layer(inplace=True)
+        self.act_g = activation_layer(inplace=True)
 
     def forward(self, x: Tuple[torch.Tensor, int]) -> Tuple[torch.Tensor, torch.Tensor]:
-        # xxxx8888
-        print("--- START_REST_FFC_BN_ACT { type(x): ", type(x))
-        if isinstance(x, tuple):
-            print("  --- x type: ", type(x[0]), type(x[1]))
-        else:
-            print("  --- x type: ", type(x))
-
         x_l, x_g = self.ffc(x)
         x_l = self.act_l(self.bn_l(x_l))
         x_g = self.act_g(self.bn_g(x_g))
-
-        print("  --- type(x_g): ", type(x_g), "}")
 
         return (x_l, x_g)
 
@@ -297,84 +259,48 @@ class REST_FFC(nn.Module):
         in_cl = in_channels - in_cg
         out_cg = int(out_channels * ratio_gout)
         out_cl = out_channels - out_cg
-        #groups_g = 1 if groups == 1 else int(groups * ratio_gout)
-        #groups_l = 1 if groups == 1 else groups - groups_g
 
         self.ratio_gin = ratio_gin
         self.ratio_gout = ratio_gout
-        # print(" ###### REST_FFC self.ratio_gin, self.ratio_gout --", self.ratio_gin, self.ratio_gout)
-        # print(" ###### REST_FFC in_cl, out_cl --", in_cl, out_cl)
-        # print(" ###### REST_FFC in_cg, out_cg --", in_cg, out_cg)
 
-        module = nn.Identity if in_cl == 0 or out_cl == 0 else nn.Conv2d
-        self.convl2l = module(in_cl, out_cl, kernel_size,
+        self.convl2l = nn.Conv2d(in_cl, out_cl, kernel_size,
                               stride, padding, dilation, groups, bias, padding_mode=padding_type)
-        module = nn.Identity if in_cl == 0 or out_cg == 0 else nn.Conv2d
-        self.convl2g = module(in_cl, out_cg, kernel_size,
+        self.convl2g = nn.Conv2d(in_cl, out_cg, kernel_size,
                               stride, padding, dilation, groups, bias, padding_mode=padding_type)
-
-        module = nn.Identity if in_cg == 0 or out_cl == 0 else nn.Conv2d
-        self.convg2l = module(in_cg, out_cl, kernel_size,
+        self.convg2l = nn.Conv2d(in_cg, out_cl, kernel_size,
                               stride, padding, dilation, groups, bias, padding_mode=padding_type)
-
-        module = nn.Identity if in_cg == 0 or out_cg == 0 else SpectralTransform
-        self.convg2g = module(
+        self.convg2g = SpectralTransform(
             in_cg, out_cg, stride, 1 if groups == 1 else groups // 2)
 
 
-    def forward(self, x: Tuple[torch.Tensor, int]) -> Tuple[torch.Tensor, int]:
-        # xxxx8888
-        x_l, x_g = x if type(x) is tuple else (x, 0)
-        out_xl, out_xg = x_l, 0
-
-        g2l_gate, l2g_gate = 1, 1
-
-        if self.ratio_gout != 1: # True
-            out_xl = self.convl2l(x_l) + self.convg2l(x_g) * g2l_gate
-        if self.ratio_gout != 0:
-            out_xg = self.convl2g(x_l) * l2g_gate + self.convg2g(x_g)
-
-        # print("--- REST_FFC type(x_g)", type(x), type(x_g))
-
-        return out_xl, out_xg
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        x_l, x_g = x
+        out_xl = self.convl2l(x_l) + self.convg2l(x_g)
+        out_xg = self.convl2g(x_l) + self.convg2g(x_g)
+        return (out_xl, out_xg)
 
 class REST_FFC_BN_ACT(nn.Module):
-
     def __init__(self, in_channels, out_channels,
                  kernel_size, ratio_gin=0.75, ratio_gout=0.75,
                  stride=1, padding=0, dilation=1, groups=1, bias=False,
                  norm_layer=nn.BatchNorm2d, activation_layer=nn.Identity,
                  padding_type='reflect'):
         super(REST_FFC_BN_ACT, self).__init__()
-        # kargs -- {}
 
         self.ffc = REST_FFC(in_channels, out_channels, kernel_size,
                        ratio_gin, ratio_gout, stride, padding, dilation,
                        groups, bias, padding_type=padding_type)
-        lnorm = nn.Identity if ratio_gout == 1 else norm_layer
-        gnorm = nn.Identity if ratio_gout == 0 else norm_layer
         global_channels = int(out_channels * ratio_gout)
-        self.bn_l = lnorm(out_channels - global_channels)
-        self.bn_g = gnorm(global_channels)
+        self.bn_l = norm_layer(out_channels - global_channels)
+        self.bn_g = norm_layer(global_channels)
 
-        lact = nn.Identity if ratio_gout == 1 else activation_layer
-        gact = nn.Identity if ratio_gout == 0 else activation_layer
-        self.act_l = lact(inplace=True)
-        self.act_g = gact(inplace=True)
+        self.act_l = activation_layer(inplace=True)
+        self.act_g = activation_layer(inplace=True)
 
     def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
-        # xxxx8888
-        print("--- REST_FFC_BN_ACT { type(x): ", type(x))
-        if isinstance(x, tuple):
-            print("  --- x type: ", type(x[0]), type(x[1]))
-        else:
-            print("  --- x type: ", type(x))
-
         x_l, x_g = self.ffc(x)
         x_l = self.act_l(self.bn_l(x_l))
         x_g = self.act_g(self.bn_g(x_g))
-
-        print("  --- type(x_g): ", type(x_g), "}")
 
         return (x_l, x_g)
 
@@ -392,40 +318,21 @@ class FFCResnetBlock(nn.Module):
                                 norm_layer=norm_layer,
                                 activation_layer=activation_layer,
                                 padding_type=padding_type)
-        # if spatial_transform_kwargs is not None: # False
-        #     self.conv1 = LearnableSpatialTransformWrapper(self.conv1, **spatial_transform_kwargs)
-        #     self.conv2 = LearnableSpatialTransformWrapper(self.conv2, **spatial_transform_kwargs)
         self.inline = inline # False
 
-    def forward(self, x: List[torch.Tensor]) -> List[torch.Tensor]:
-        # xxxx8888 ==> root ?
-
-        # xxxx8888
-        # x_l, x_g = x if type(x) is tuple else (x, 0)
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         x_l, x_g = x
-
         id_l, id_g = x_l, x_g
 
         x_l, x_g = self.conv1((x_l, x_g))
         x_l, x_g = self.conv2((x_l, x_g))
-
         x_l, x_g = id_l + x_l, id_g + x_g
-        out = x_l, x_g
 
-        # if self.inline:
-        #     out = torch.cat(out, dim=1)
-
-        return out
+        return (x_l, x_g)
 
 
 class ReduceTupleLayer(nn.Module):
-    def forward(self, x: Tuple[torch.Tensor, int]):
-        # assert isinstance(x, tuple)
-        x_l, x_g = x
-        # assert torch.is_tensor(x_l) or torch.is_tensor(x_g)
-        # if not torch.is_tensor(x_g):
-        #     print(" --- ReduceTupleLayer forward x_g: ", type(x_g), x_g)
-        #     return x_l
+    def forward(self, x: Tuple[torch.Tensor, torch.Tensor]):
         return torch.cat(x, dim=1)
 
 
