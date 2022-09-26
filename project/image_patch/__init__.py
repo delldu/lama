@@ -45,7 +45,7 @@ def load_model(model, path):
 def get_model():
     """Create model."""
 
-    model_path = "models/image_lama.pth"
+    model_path = "models/image_patch.pth"
     cdir = os.path.dirname(__file__)
     checkpoint = model_path if cdir == "" else cdir + "/" + model_path
 
@@ -57,30 +57,26 @@ def get_model():
     model = model.to(device)
     model.eval()
 
-    # model = torch.jit.script(model)
-
-    # todos.data.mkdir("output")
-    # if not os.path.exists("output/image_lama.torch"):
-    #     model.save("output/image_lama.torch")
+    print(f"Running on {device} ...")
+    model = torch.jit.script(model)
+    todos.data.mkdir("output")
+    if not os.path.exists("output/image_patch.torch"):
+        model.save("output/image_patch.torch")
 
     return model, device
 
 
-def pad_tensor(tensor, times=8):
-    B, C, H, W = tensor.shape
-    Hnew = int(times * math.ceil(H / times))
-    Wnew = int(times * math.ceil(W / times))
-    Bottom = Hnew - H
-    Right = Wnew - W
-    PadDim = (0, Right, 0, Bottom)  # l, r, t, b
-    return F.pad(tensor, pad=PadDim, mode="reflect")
-
-
-def model_forward(model, device, input_tensor):
+def model_forward(model, device, input_tensor, multi_times=1):
+    # zeropad for model
     H, W = input_tensor.size(2), input_tensor.size(3)
-    input_tensor = pad_tensor(input_tensor)
-    with torch.no_grad():
+    if H % multi_times != 0 or W % multi_times != 0:
+        input_tensor = todos.data.zeropad_tensor(input_tensor, times=multi_times)
+
+    torch.cuda.synchronize()
+    with torch.jit.optimized_execution(False):
         output_tensor = todos.model.forward(model, device, input_tensor)
+    torch.cuda.synchronize()
+
     return output_tensor[:, :, 0:H, 0:W]
 
 
@@ -110,7 +106,7 @@ def image_server(name, host="localhost", port=6379):
             print("exception: ", e)
             return False
 
-    return redos.image.service(name, "image_lama", do_service, host, port)
+    return redos.image.service(name, "image_patch", do_service, host, port)
 
 
 def image_predict(input_files, output_dir):

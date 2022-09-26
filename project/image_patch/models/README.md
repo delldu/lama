@@ -1,1 +1,1 @@
-3b3028e280c2e71dd8fdd3e968bf1f55  image_lama.pth
+3b3028e280c2e71dd8fdd3e968bf1f55  image_patch.pth

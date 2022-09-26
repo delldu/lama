@@ -15,7 +15,7 @@ with open("README.md", "r") as file:
     long_description = file.read()
 
 setup(
-    name="image_lama",
+    name="image_patch",
     version="1.0.0",
     author="Dell Du",
     author_email="18588220928@163.com",
@@ -23,8 +23,8 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/delldu/lama.git",
-    packages=["image_lama"],
-    package_data={"image_lama": ["models/image_lama.pth"]},
+    packages=["image_patch"],
+    package_data={"image_patch": ["models/image_patch.pth"]},
     include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",

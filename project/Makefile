@@ -13,7 +13,7 @@ install:
 	python setup.py install
 
 uninstall:
-	pip uninstall image_lama
+	pip uninstall image_patch
 
 clean:
-	rm -rf build dist image_lama.egg-info __pycache__
+	rm -rf build dist image_patch.egg-info __pycache__
