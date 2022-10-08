@@ -14,8 +14,6 @@ __version__ = "1.0.0"
 import os
 from tqdm import tqdm
 import torch
-import math
-import torch.nn.functional as F
 
 import redos
 import todos
@@ -72,10 +70,7 @@ def model_forward(model, device, input_tensor, multi_times=1):
     if H % multi_times != 0 or W % multi_times != 0:
         input_tensor = todos.data.zeropad_tensor(input_tensor, times=multi_times)
 
-    torch.cuda.synchronize()
-    with torch.jit.optimized_execution(False):
-        output_tensor = todos.model.forward(model, device, input_tensor)
-    torch.cuda.synchronize()
+    output_tensor = todos.model.forward(model, device, input_tensor)
 
     return output_tensor[:, :, 0:H, 0:W]
 
@@ -126,17 +121,13 @@ def image_predict(input_files, output_dir):
 
         # orig input
         input_tensor = todos.data.load_rgba_tensor(filename)
-        input_mask = (input_tensor[:, 3:4, :, :] < 0.9).float()
-        input_content = input_tensor[:, 0:3, :, :] * (1.0 - input_mask)
-        input_tensor = torch.cat((input_content, input_mask), dim=1)
-
         # pytorch recommand clone.detach instead of torch.Tensor(input_tensor)
         orig_tensor = input_tensor.clone().detach()
+
         predict_tensor = model_forward(model, device, input_tensor)
 
         output_file = f"{output_dir}/{os.path.basename(filename)}"
-
-        todos.data.save_tensor([orig_tensor[:, 0:3, :, :], predict_tensor], output_file)
+        todos.data.save_tensor([orig_tensor, predict_tensor], output_file)
 
 
 def video_service(input_file, output_file, targ):

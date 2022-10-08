@@ -100,6 +100,8 @@ class SpectralTransform(nn.Module):
 
 
 class INIT_FFC(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         in_channels,
@@ -126,6 +128,8 @@ class INIT_FFC(nn.Module):
 
 
 class INIT_FFC_BN_ACT(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         in_channels,
@@ -157,6 +161,8 @@ class INIT_FFC_BN_ACT(nn.Module):
 
 
 class DOWN_FFC(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         in_channels,
@@ -184,6 +190,8 @@ class DOWN_FFC(nn.Module):
 
 
 class DOWN_FFC_BN_ACT(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         in_channels,
@@ -216,6 +224,8 @@ class DOWN_FFC_BN_ACT(nn.Module):
 
 
 class START_REST_FFC(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         in_channels,
@@ -253,6 +263,8 @@ class START_REST_FFC(nn.Module):
 
 
 class START_REST_FFC_BN_ACT(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         in_channels,
@@ -288,6 +300,8 @@ class START_REST_FFC_BN_ACT(nn.Module):
 
 
 class REST_FFC(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         in_channels,
@@ -328,6 +342,8 @@ class REST_FFC(nn.Module):
 
 
 class REST_FFC_BN_ACT(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         in_channels,
@@ -364,6 +380,8 @@ class REST_FFC_BN_ACT(nn.Module):
 
 
 class FFCResnetBlock(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(self, dim, norm_layer, activation_layer=nn.ReLU, dilation=1):
         super().__init__()
         self.conv1 = REST_FFC_BN_ACT(
@@ -402,6 +420,8 @@ class ReduceTupleLayer(nn.Module):
 
 
 class FFCResNetGenerator(nn.Module):
+    """FFC -- Fast Fourier Convolution"""
+
     def __init__(
         self,
         input_nc=4,
@@ -416,17 +436,13 @@ class FFCResNetGenerator(nn.Module):
         assert n_blocks >= 0
         super().__init__()
 
-        init_conv_kwargs = {
-            "ratio_gin": 0.0,
-            "ratio_gout": 0.0,
-        }
         resnet_conv_kwargs = {
             "ratio_gin": 0.75,
             "ratio_gout": 0.75,
         }
         downsample_conv_kwargs = {
-            "ratio_gin": init_conv_kwargs["ratio_gout"],
-            "ratio_gout": init_conv_kwargs["ratio_gin"],  # resnet_conv_kwargs['ratio_gin']
+            "ratio_gin": 0.0,
+            "ratio_gout": 0.0,
         }
 
         # INIT_FFC_BN_ACT (0.0, 0.0)
@@ -509,6 +525,20 @@ class FFCResNetGenerator(nn.Module):
 
     def forward(self, input):
         # input.size() -- [1, 4, 1000, 1504], input[:, 3:4, :, :].mean() -- 0.1590
-        output = self.model(input)
-        # output.size() -- [1, 3, 1000, 1504]
-        return output.clamp(0.0, 1.0)
+        B, C, H, W = input.size()
+        assert C == 4  # Make input is Bx4xHxW
+
+        # input
+        input_mask = input[:, 3:4, :, :]
+        input_bin_mask = (input_mask < 0.9).float().to(input.device)
+        input_content = input[:, 0:3, :, :] * (1.0 - input_bin_mask)
+        input_tensor = torch.cat((input_content, input_bin_mask), dim=1)
+
+        # process
+        output_tensor = self.model(input_tensor)  # [1, 3, 1000, 1504]
+
+        # output
+        output_tensor = output_tensor[:, :, 0:H, 0:W].clamp(0.0, 1.0)
+        output_mask = torch.ones(B, 1, H, W).to(input.device)
+
+        return torch.cat((output_tensor, output_mask), dim=1)
