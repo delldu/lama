@@ -4,6 +4,8 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 from typing import Tuple
 
 import pdb
@@ -435,6 +437,10 @@ class FFCResNetGenerator(nn.Module):
     ):
         assert n_blocks >= 0
         super().__init__()
+        # Define max GPU/CPU memory -- 4G
+        self.MAX_H = 1024
+        self.MAX_W = 1024
+        self.MAX_TIMES = 4
 
         resnet_conv_kwargs = {
             "ratio_gin": 0.75,
@@ -523,7 +529,7 @@ class FFCResNetGenerator(nn.Module):
 
         self.model = nn.Sequential(*model)
 
-    def forward(self, input):
+    def forward_x(self, input):
         # input.size() -- [1, 4, 1000, 1504], input[:, 3:4, :, :].mean() -- 0.1590
         B, C, H, W = input.size()
         assert C == 4  # Make input is Bx4xHxW
@@ -542,3 +548,29 @@ class FFCResNetGenerator(nn.Module):
         output_mask = torch.ones(B, 1, H, W).to(input.device)
 
         return torch.cat((output_tensor, output_mask), dim=1)
+
+    def forward(self, x):
+        # Need Resize ?
+        B, C, H, W = x.size()
+        if H > self.MAX_H or W > self.MAX_W:
+            s = min(self.MAX_H / H, self.MAX_W / W)
+            SH, SW = int(s * H), int(s * W)
+            resize_x = F.interpolate(x, size=(SH, SW), mode="bilinear", align_corners=False)
+        else:
+            resize_x = x
+
+        # Need Pad ?
+        PH, PW = resize_x.size(2), resize_x.size(3)
+        if PH % self.MAX_TIMES != 0 or PW % self.MAX_TIMES != 0:
+            r_pad = self.MAX_TIMES - (PW % self.MAX_TIMES)
+            b_pad = self.MAX_TIMES - (PH % self.MAX_TIMES)
+            resize_pad_x = F.pad(resize_x, (0, r_pad, 0, b_pad), mode="replicate")
+        else:
+            resize_pad_x = resize_x
+
+        y = self.forward_x(resize_pad_x)
+
+        y = y[:, :, 0:PH, 0:PW]  # Remove Pads
+        y = F.interpolate(y, size=(H, W), mode="bilinear", align_corners=False)  # Remove Resize
+
+        return y
