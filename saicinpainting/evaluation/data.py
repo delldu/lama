@@ -7,7 +7,7 @@ import numpy as np
 
 from torch.utils.data import Dataset
 import torch.nn.functional as F
-
+import pdb
 
 def load_image(fname, mode='RGB', return_orig=False):
     img = np.array(Image.open(fname).convert(mode))
@@ -60,8 +60,9 @@ class InpaintingDataset(Dataset):
         self.datadir = datadir
         self.mask_filenames = sorted(list(glob.glob(os.path.join(self.datadir, '**', '*mask*.png'), recursive=True)))
         self.img_filenames = [fname.rsplit('_mask', 1)[0] + img_suffix for fname in self.mask_filenames]
-        self.pad_out_to_modulo = pad_out_to_modulo
-        self.scale_factor = scale_factor
+        self.pad_out_to_modulo = pad_out_to_modulo # 8
+        self.scale_factor = scale_factor # None
+        # self.mask_filenames -- ['LaMa_test_images/000068_mask.png', ..., ]
 
     def __len__(self):
         return len(self.mask_filenames)

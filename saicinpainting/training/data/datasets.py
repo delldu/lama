@@ -21,6 +21,7 @@ from saicinpainting.training.data.masks import get_mask_generator
 
 LOGGER = logging.getLogger(__name__)
 
+import pdb
 
 class InpaintingTrainDataset(Dataset):
     def __init__(self, indir, mask_generator, transform):
@@ -255,10 +256,13 @@ def make_default_val_dataset(indir, kind='default', out_size=512, transform_vari
     LOGGER.info(f'Make val dataloader {kind} from {indir}')
     mask_generator = get_mask_generator(kind=kwargs.get("mask_generator_kind"), kwargs=kwargs.get("mask_gen_kwargs"))
 
-    if transform_variant is not None:
+    if transform_variant is not None: # True
         transform = get_transforms(transform_variant, out_size)
 
+    # indir -- LaMa_test_images/
+    # kind -- 'default'
     if kind == 'default':
+        # kwargs -- {'img_suffix': '.png', 'pad_out_to_modulo': 8}
         dataset = InpaintingEvaluationDataset(indir, **kwargs)
     elif kind == 'our_eval':
         dataset = OurInpaintingEvaluationDataset(indir, **kwargs)

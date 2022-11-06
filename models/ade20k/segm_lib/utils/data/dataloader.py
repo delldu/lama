@@ -20,7 +20,7 @@ if sys.version_info[0] == 2:
     import Queue as queue
 else:
     import queue
-
+import pdb
 
 class ExceptionWrapper(object):
     r"Wraps an exception plus traceback to communicate across threads"
@@ -106,6 +106,8 @@ def default_collate(batch):
 
     error_msg = "batch must contain tensors, numbers, dicts or lists; found {}"
     elem_type = type(batch[0])
+    pdb.set_trace()
+    
     if torch.is_tensor(batch[0]):
         out = None
         if _use_shared_memory:

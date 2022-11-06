@@ -80,6 +80,7 @@ class SpectralTransform(nn.Module):
         self.conv2 = torch.nn.Conv2d(out_channels // 2, out_channels, kernel_size=1, groups=groups, bias=False)
 
     def forward(self, x):
+        # x.size() -- [1, 384, 125, 188]
         x = self.downsample(x)
         x = self.conv1(x)
         output = self.fu(x)

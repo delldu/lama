@@ -57,7 +57,7 @@ def main(predict_config: OmegaConf):
         model = load_checkpoint(train_config, checkpoint_path, strict=False, map_location='cpu')
         model.freeze()
         model.to(device)
-        # torch.save(model.state_dict(), "/tmp/lama.pth")
+        torch.save(model.state_dict(), "/tmp/lama.pth")
 
         if not predict_config.indir.endswith('/'):
             predict_config.indir += '/'
@@ -72,9 +72,10 @@ def main(predict_config: OmegaConf):
                 )
                 os.makedirs(os.path.dirname(cur_out_fname), exist_ok=True)
 
+                # device -- device(type='cuda')
+                # dataset[img_i].keys() -- dict_keys(['image', 'mask', 'unpad_to_size'])
                 batch = move_to_device(default_collate([dataset[img_i]]), device)
                 batch['mask'] = (batch['mask'] > 0) * 1
-
                 # batch['image'].size() -- [1, 3, 1000, 1504], batch['mask'].size() -- [1. 1. 1000, 15004]
                 batch = model(batch)
                 #  batch.keys() -- ['image', 'mask', 'predicted_image', 'inpainted', 'mask_for_losses']
@@ -82,7 +83,6 @@ def main(predict_config: OmegaConf):
 
                 # batch[predict_config.out_key] = batch[predict_config.out_key] * (1.0 - 0.5 * batch['mask'])
                 cur_res = batch[predict_config.out_key][0].permute(1, 2, 0).detach().cpu().numpy()
-
                 unpad_to_size = batch.get('unpad_to_size', None)
                 if unpad_to_size is not None:
                     orig_height, orig_width = unpad_to_size
