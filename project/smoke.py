@@ -15,6 +15,8 @@ import time
 import random
 import torch
 
+import todos
+
 import image_patch
 
 from tqdm import tqdm
@@ -36,10 +38,7 @@ if __name__ == "__main__":
         # print("x: ", x.size())
 
         start_time = time.time()
-        with torch.jit.optimized_execution(False):
-            with torch.no_grad():
-                y = model(x.to(device))
-        torch.cuda.synchronize()
+        y = todos.model.forward(model, device, x)
         mean_time += time.time() - start_time
 
     mean_time /= N

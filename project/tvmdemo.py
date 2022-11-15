@@ -18,11 +18,13 @@ import torch
 import todos
 import image_patch
 
-# RuntimeError: CUDA out of memory. Tried to allocate 14.00 MiB (GPU 0; 10.76 GiB total capacity; 7.38 GiB already allocated; 25.62 MiB free; 8.15 GiB reserved in total by PyTorch)
+# NotImplementedError: The following operators are not implemented: 
+# ['aten::fft_rfftn', 'aten::real', 'aten::complex', 'aten::fft_irfftn', 'aten::imag']
+
+SO_B, SO_C, SO_H, SO_W = 1, 4, 512, 512
 
 def compile():
     model, device = image_patch.get_tvm_model()
-    SO_B, SO_C, SO_H, SO_W = 1, 4, model.MAX_H, model.MAX_W
 
     todos.data.mkdir("output")
     if not os.path.exists("output/image_patch.so"):
@@ -32,14 +34,12 @@ def compile():
 
 
 def predict(input_files, output_dir):
-    model, device = image_patch.get_tvm_model()
-    SO_B, SO_C, SO_H, SO_W = 1, 4, model.MAX_H, model.MAX_W
-
     # Create directory to store result
     todos.data.mkdir(output_dir)
 
     # load model
-    tvm_model = todos.tvmod.load("output/image_patch.so", "cuda")
+    device = todos.model.get_device()
+    tvm_model = todos.tvmod.load("output/image_patch.so", str(device))
 
     # load files
     image_filenames = todos.data.load_files(input_files)

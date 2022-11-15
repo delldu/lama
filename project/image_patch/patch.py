@@ -437,9 +437,9 @@ class FFCResNetGenerator(nn.Module):
     ):
         assert n_blocks >= 0
         super().__init__()
-        # Define max GPU/CPU memory -- 3G
+        # Define max GPU/CPU memory -- 5G, 530ms
         self.MAX_H = 1024
-        self.MAX_W = 1024
+        self.MAX_W = 2048
         self.MAX_TIMES = 4
 
         resnet_conv_kwargs = {
@@ -528,7 +528,6 @@ class FFCResNetGenerator(nn.Module):
         model.append(nn.Sigmoid())
 
         self.model = nn.Sequential(*model)
-
 
     def forward(self, input):
         # input.size() -- [1, 4, 1000, 1504], input[:, 3:4, :, :].mean() -- 0.1590
