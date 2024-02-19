@@ -2,7 +2,7 @@
 #
 # /************************************************************************************
 # ***
-# ***    Copyright Dell 2020-2022(18588220928@163.com), All Rights Reserved.
+# ***    Copyright Dell 2020-2024(18588220928@163.com), All Rights Reserved.
 # ***
 # ***    File Author: Dell, 2020年 12月 28日 星期一 14:29:37 CST
 # ***
@@ -24,7 +24,7 @@ import image_patch
 SO_B, SO_C, SO_H, SO_W = 1, 4, 512, 512
 
 def compile():
-    model, device = image_patch.get_tvm_model()
+    model, device = image_patch.get_trace_model()
 
     todos.data.mkdir("output")
     if not os.path.exists("output/image_patch.so"):

@@ -2,21 +2,21 @@
 # original implementation https://github.com/pkumivision/FFC/blob/main/model_zoo/ffc.py
 # paper https://proceedings.neurips.cc/paper/2020/file/2fd5d41ec6cfab47e32164d5624269b1-Paper.pdf
 
+import os
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
 from typing import Tuple
 
 import pdb
 
-
+# xxxx_8888
 class FourierUnit(nn.Module):
-    def __init__(self, in_channels, out_channels, groups=1, ffc3d=False):
-        super(FourierUnit, self).__init__()
+    '''2D Fourier'''
+    def __init__(self, in_channels, out_channels, groups=1):
+        super().__init__()
         self.groups = groups
 
-        self.conv_layer = torch.nn.Conv2d(
+        self.conv_layer = nn.Conv2d(
             in_channels=in_channels * 2,
             out_channels=out_channels * 2,
             kernel_size=1,
@@ -25,57 +25,45 @@ class FourierUnit(nn.Module):
             groups=self.groups,
             bias=False,
         )
-        self.bn = torch.nn.BatchNorm2d(out_channels * 2)
-        self.relu = torch.nn.ReLU(inplace=True)
-
-        self.ffc3d = ffc3d
+        self.bn = nn.BatchNorm2d(out_channels * 2)
+        self.relu = nn.ReLU(inplace=True)
+        # FourierUnit(
+        #   (conv_layer): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        #   (bn): BatchNorm2d(384, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        #   (relu): ReLU(inplace=True)
+        # )
 
     def forward(self, x):
-        batch = x.shape[0]
+        B, C, H, W = x.size()
 
-        # fft_dim = (-3, -2, -1) if self.ffc3d else (-2, -1)
-        fft_dim = (-2, -1)
-        ffted = torch.fft.rfftn(x, dim=fft_dim, norm="ortho")
-        ffted = torch.stack((ffted.real, ffted.imag), dim=-1)
-        ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # (batch, c, 2, h, w/2+1)
-        ffted = ffted.view(
-            (
-                batch,
-                -1,
-            )
-            + ffted.size()[3:]
-        )
+        # x.size() -- [1, 192, 125, 188]
+        ffted = torch.fft.rfftn(x, dim=(2, 3), norm="ortho")
+        # ffted.size() -- [1, 192, 125, 95], torch.complex64
 
-        ffted = self.conv_layer(ffted)  # (batch, c*2, h, w/2+1)
+        ffted = torch.stack((ffted.real, ffted.imag), dim=-1) # [1, 192, 125, 95, 2]
+        ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # ==> [1, 192, 2, 125, 95] (B, c, 2, h, w/2+1)
+        ffted = ffted.view((B, -1, ) + ffted.size()[3:]) # [1, 384, 125, 95]
+
+        ffted = self.conv_layer(ffted)  # [1, 384, 125, 95] (B, c*2, h, w/2+1)
         ffted = self.relu(self.bn(ffted))
 
         ffted = (
-            ffted.view(
-                (
-                    batch,
-                    -1,
-                    2,
-                )
-                + ffted.size()[2:]
-            )
+            ffted.view((B, -1, 2, ) + ffted.size()[2:])
             .permute(0, 1, 3, 4, 2)
             .contiguous()
         )
-        # (batch,c, t, h, w/2+1, 2)
+        # [1, 192, 2, 125, 95] ==> [1, 192, 125, 95, 2]
+        # (B, c, t, h, w/2+1, 2)
         ffted = torch.complex(ffted[..., 0], ffted[..., 1])
 
-        # ifft_shape_slice = x.shape[-3:] if self.ffc3d else x.shape[-2:]
-        ifft_shape_slice = x.shape[-2:]
+        output = torch.fft.irfftn(ffted, s=(H, W), dim=(2, 3), norm="ortho")
 
-        output = torch.fft.irfftn(ffted, s=ifft_shape_slice, dim=fft_dim, norm="ortho")
-
-        return output
+        return output # [1, 192, 125, 188]
 
 
 class SpectralTransform(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, groups=1):
-
-        super(SpectralTransform, self).__init__()
+        super().__init__()
 
         if stride == 2:
             self.downsample = nn.AvgPool2d(kernel_size=(2, 2), stride=2)
@@ -90,7 +78,7 @@ class SpectralTransform(nn.Module):
         )
         self.fu = FourierUnit(out_channels // 2, out_channels // 2, groups)
 
-        self.conv2 = torch.nn.Conv2d(out_channels // 2, out_channels, kernel_size=1, groups=groups, bias=False)
+        self.conv2 = nn.Conv2d(out_channels // 2, out_channels, kernel_size=1, groups=groups, bias=False)
 
     def forward(self, x):
         x = self.downsample(x)
@@ -104,11 +92,7 @@ class SpectralTransform(nn.Module):
 class INIT_FFC(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
+    def __init__(self, in_channels, out_channels, kernel_size,
         ratio_gin=0.0,
         ratio_gout=0.0,
         stride=1,
@@ -117,11 +101,12 @@ class INIT_FFC(nn.Module):
         groups=1,
         bias=False,
     ):
-        super(INIT_FFC, self).__init__()
+        super().__init__()
 
         assert stride == 1 or stride == 2, "Stride should be 1 or 2."
         self.convl2l = nn.Conv2d(
-            in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode="reflect"
+            in_channels, out_channels, kernel_size, stride, padding, 
+            dilation, groups, bias, padding_mode="reflect"
         )
 
     def forward(self, x) -> Tuple[torch.Tensor, int]:
@@ -132,11 +117,7 @@ class INIT_FFC(nn.Module):
 class INIT_FFC_BN_ACT(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
+    def __init__(self, in_channels, out_channels, kernel_size,
         ratio_gin=0.0,
         ratio_gout=0.0,
         stride=1,
@@ -144,16 +125,15 @@ class INIT_FFC_BN_ACT(nn.Module):
         dilation=1,
         groups=1,
         bias=False,
-        norm_layer=nn.BatchNorm2d,
-        activation_layer=nn.Identity,
     ):
-        super(INIT_FFC_BN_ACT, self).__init__()
+        super().__init__()
 
         self.ffc = INIT_FFC(
-            in_channels, out_channels, kernel_size, ratio_gin, ratio_gout, stride, padding, dilation, groups, bias
+            in_channels, out_channels, kernel_size, ratio_gin, ratio_gout, stride, padding, 
+            dilation, groups, bias
         )
-        self.bn_l = norm_layer(out_channels)
-        self.act_l = activation_layer(inplace=True)
+        self.bn_l = nn.BatchNorm2d(out_channels)
+        self.act_l = nn.ReLU()
 
     def forward(self, x) -> Tuple[torch.Tensor, int]:
         x_l, x_g = self.ffc(x)
@@ -165,25 +145,22 @@ class INIT_FFC_BN_ACT(nn.Module):
 class DOWN_FFC(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
+    def __init__(self, in_channels, out_channels, kernel_size,
         ratio_gin=0.0,
-        ratio_gout=0.75,
+        ratio_gout=0.0,
         stride=1,
         padding=0,
         dilation=1,
         groups=1,
         bias=False,
     ):
-        super(DOWN_FFC, self).__init__()
+        super().__init__()
         assert stride == 1 or stride == 2, "Stride should be 1 or 2."
 
         out_channels = out_channels - int(out_channels * ratio_gout)
         self.convl2l = nn.Conv2d(
-            in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode="reflect"
+            in_channels, out_channels, kernel_size, stride, padding, 
+            dilation, groups, bias, padding_mode="reflect"
         )
 
     def forward(self, x: Tuple[torch.Tensor, int]) -> Tuple[torch.Tensor, int]:
@@ -194,29 +171,24 @@ class DOWN_FFC(nn.Module):
 class DOWN_FFC_BN_ACT(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
+    def __init__(self, in_channels, out_channels, kernel_size,
         ratio_gin=0.0,
-        ratio_gout=0.75,
+        ratio_gout=0.0,
         stride=1,
         padding=0,
         dilation=1,
         groups=1,
         bias=False,
-        norm_layer=nn.BatchNorm2d,
-        activation_layer=nn.Identity,
     ):
-        super(DOWN_FFC_BN_ACT, self).__init__()
+        super().__init__()
 
         self.ffc = DOWN_FFC(
-            in_channels, out_channels, kernel_size, ratio_gin, ratio_gout, stride, padding, dilation, groups, bias
+            in_channels, out_channels, kernel_size, ratio_gin, ratio_gout, 
+            stride, padding, dilation, groups, bias
         )
         out_channels = out_channels - int(out_channels * ratio_gout)
-        self.bn_l = norm_layer(out_channels)
-        self.act_l = activation_layer(inplace=True)
+        self.bn_l = nn.BatchNorm2d(out_channels)
+        self.act_l = nn.ReLU()
 
     def forward(self, x: Tuple[torch.Tensor, int]) -> Tuple[torch.Tensor, int]:
         x_l, x_g = self.ffc(x)
@@ -228,11 +200,7 @@ class DOWN_FFC_BN_ACT(nn.Module):
 class START_REST_FFC(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
+    def __init__(self, in_channels, out_channels, kernel_size,
         ratio_gin=0.75,
         ratio_gout=0.75,
         stride=1,
@@ -241,7 +209,7 @@ class START_REST_FFC(nn.Module):
         groups=1,
         bias=False,
     ):
-        super(START_REST_FFC, self).__init__()
+        super().__init__()
 
         assert stride == 1 or stride == 2, "Stride should be 1 or 2."
 
@@ -250,12 +218,10 @@ class START_REST_FFC(nn.Module):
         out_cg = int(out_channels * ratio_gout)
         out_cl = out_channels - out_cg
 
-        self.convl2l = nn.Conv2d(
-            in_cl, out_cl, kernel_size, stride, padding, dilation, groups, bias, padding_mode="reflect"
-        )
-        self.convl2g = nn.Conv2d(
-            in_cl, out_cg, kernel_size, stride, padding, dilation, groups, bias, padding_mode="reflect"
-        )
+        self.convl2l = nn.Conv2d(in_cl, out_cl, kernel_size, stride, padding, 
+            dilation, groups, bias, padding_mode="reflect")
+        self.convl2g = nn.Conv2d(in_cl, out_cg, kernel_size, stride, padding, 
+            dilation, groups, bias, padding_mode="reflect")
 
     def forward(self, x: Tuple[torch.Tensor, int]) -> Tuple[torch.Tensor, torch.Tensor]:
         x_l, x_g = x
@@ -267,31 +233,26 @@ class START_REST_FFC(nn.Module):
 class START_REST_FFC_BN_ACT(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        ratio_gin=0.75,
+    def __init__(self, in_channels, out_channels, kernel_size,
+        ratio_gin=0.0,
         ratio_gout=0.75,
         stride=1,
         padding=0,
         dilation=1,
         groups=1,
         bias=False,
-        norm_layer=nn.BatchNorm2d,
-        activation_layer=nn.Identity,
     ):
-        super(START_REST_FFC_BN_ACT, self).__init__()
+        super().__init__()
 
         self.ffc = START_REST_FFC(
-            in_channels, out_channels, kernel_size, ratio_gin, ratio_gout, stride, padding, dilation, groups, bias
+            in_channels, out_channels, kernel_size, ratio_gin, ratio_gout, 
+            stride, padding, dilation, groups, bias
         )
         global_channels = int(out_channels * ratio_gout)
-        self.bn_l = norm_layer(out_channels - global_channels)
-        self.bn_g = norm_layer(global_channels)
-        self.act_l = activation_layer(inplace=True)
-        self.act_g = activation_layer(inplace=True)
+        self.bn_l = nn.BatchNorm2d(out_channels - global_channels)
+        self.bn_g = nn.BatchNorm2d(global_channels)
+        self.act_l = nn.ReLU()
+        self.act_g = nn.ReLU()
 
     def forward(self, x: Tuple[torch.Tensor, int]) -> Tuple[torch.Tensor, torch.Tensor]:
         x_l, x_g = self.ffc(x)
@@ -304,11 +265,7 @@ class START_REST_FFC_BN_ACT(nn.Module):
 class REST_FFC(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
+    def __init__(self, in_channels, out_channels, kernel_size,
         ratio_gin=0.75,
         ratio_gout=0.75,
         stride=1,
@@ -317,7 +274,7 @@ class REST_FFC(nn.Module):
         groups=1,
         bias=False,
     ):
-        super(REST_FFC, self).__init__()
+        super().__init__()
         assert stride == 1 or stride == 2, "Stride should be 1 or 2."
 
         in_cg = int(in_channels * ratio_gin)
@@ -325,15 +282,12 @@ class REST_FFC(nn.Module):
         out_cg = int(out_channels * ratio_gout)
         out_cl = out_channels - out_cg
 
-        self.convl2l = nn.Conv2d(
-            in_cl, out_cl, kernel_size, stride, padding, dilation, groups, bias, padding_mode="reflect"
-        )
-        self.convl2g = nn.Conv2d(
-            in_cl, out_cg, kernel_size, stride, padding, dilation, groups, bias, padding_mode="reflect"
-        )
-        self.convg2l = nn.Conv2d(
-            in_cg, out_cl, kernel_size, stride, padding, dilation, groups, bias, padding_mode="reflect"
-        )
+        self.convl2l = nn.Conv2d(in_cl, out_cl, kernel_size, stride, padding, 
+            dilation, groups, bias, padding_mode="reflect")
+        self.convl2g = nn.Conv2d(in_cl, out_cg, kernel_size, stride, padding, 
+            dilation, groups, bias, padding_mode="reflect")
+        self.convg2l = nn.Conv2d(in_cg, out_cl, kernel_size, stride, padding, 
+            dilation, groups, bias, padding_mode="reflect")
         self.convg2g = SpectralTransform(in_cg, out_cg, stride, 1 if groups == 1 else groups // 2)
 
     def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -346,11 +300,7 @@ class REST_FFC(nn.Module):
 class REST_FFC_BN_ACT(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
+    def __init__(self, in_channels, out_channels, kernel_size,
         ratio_gin=0.75,
         ratio_gout=0.75,
         stride=1,
@@ -358,20 +308,18 @@ class REST_FFC_BN_ACT(nn.Module):
         dilation=1,
         groups=1,
         bias=False,
-        norm_layer=nn.BatchNorm2d,
-        activation_layer=nn.Identity,
     ):
-        super(REST_FFC_BN_ACT, self).__init__()
+        super().__init__()
 
         self.ffc = REST_FFC(
-            in_channels, out_channels, kernel_size, ratio_gin, ratio_gout, stride, padding, dilation, groups, bias
+            in_channels, out_channels, kernel_size, ratio_gin, ratio_gout, 
+            stride, padding, dilation, groups, bias
         )
         global_channels = int(out_channels * ratio_gout)
-        self.bn_l = norm_layer(out_channels - global_channels)
-        self.bn_g = norm_layer(global_channels)
-
-        self.act_l = activation_layer(inplace=True)
-        self.act_g = activation_layer(inplace=True)
+        self.bn_l = nn.BatchNorm2d(out_channels - global_channels)
+        self.bn_g = nn.BatchNorm2d(global_channels)
+        self.act_l = nn.ReLU()
+        self.act_g = nn.ReLU()
 
     def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         x_l, x_g = self.ffc(x)
@@ -384,25 +332,17 @@ class REST_FFC_BN_ACT(nn.Module):
 class FFCResnetBlock(nn.Module):
     """FFC -- Fast Fourier Convolution"""
 
-    def __init__(self, dim, norm_layer, activation_layer=nn.ReLU, dilation=1):
+    def __init__(self, dim, dilation=1):
         super().__init__()
-        self.conv1 = REST_FFC_BN_ACT(
-            dim,
-            dim,
+        self.conv1 = REST_FFC_BN_ACT(dim, dim,
             kernel_size=3,
             padding=dilation,
             dilation=dilation,
-            norm_layer=norm_layer,
-            activation_layer=activation_layer,
         )
-        self.conv2 = REST_FFC_BN_ACT(
-            dim,
-            dim,
+        self.conv2 = REST_FFC_BN_ACT(dim, dim,
             kernel_size=3,
             padding=dilation,
             dilation=dilation,
-            norm_layer=norm_layer,
-            activation_layer=activation_layer,
         )
 
     def forward(self, x: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -423,24 +363,19 @@ class ReduceTupleLayer(nn.Module):
 
 class FFCResNetGenerator(nn.Module):
     """FFC -- Fast Fourier Convolution"""
-
-    def __init__(
-        self,
+    def __init__(self,
         input_nc=4,
         output_nc=3,
         ngf=64,
         n_downsampling=3,
         n_blocks=18,
-        norm_layer=nn.BatchNorm2d,
-        activation_layer=nn.ReLU,
         max_features=1024,
     ):
-        assert n_blocks >= 0
         super().__init__()
-        # Define max GPU/CPU memory -- 5G, 530ms
         self.MAX_H = 1024
-        self.MAX_W = 2048
+        self.MAX_W = 1024
         self.MAX_TIMES = 4
+        # Define max GPU/CPU memory -- 5G(1024x2048), 530ms
 
         resnet_conv_kwargs = {
             "ratio_gin": 0.75,
@@ -451,24 +386,18 @@ class FFCResNetGenerator(nn.Module):
             "ratio_gout": 0.0,
         }
 
-        # INIT_FFC_BN_ACT (0.0, 0.0)
-        # DOWN_FFC_BN_ACT (0.0, 0.75)
-        # REST_FFC_BN_ACT (0.75, 0.75)
         model = [
             nn.ReflectionPad2d(3),
-            INIT_FFC_BN_ACT(
-                input_nc, ngf, kernel_size=7, padding=0, norm_layer=norm_layer, activation_layer=activation_layer
-            ),
+            INIT_FFC_BN_ACT(input_nc, ngf, kernel_size=7, padding=0)
         ]
 
         ### downsample
         for i in range(n_downsampling):  # n_downsampling -- 3
             mult = 2 ** i
+
+            cur_conv_kwargs = dict(downsample_conv_kwargs)
             if i == n_downsampling - 1:
-                cur_conv_kwargs = dict(downsample_conv_kwargs)
                 cur_conv_kwargs["ratio_gout"] = resnet_conv_kwargs.get("ratio_gin", 0)
-            else:
-                cur_conv_kwargs = downsample_conv_kwargs
 
             if i == n_downsampling - 1:
                 model += [
@@ -478,8 +407,6 @@ class FFCResNetGenerator(nn.Module):
                         kernel_size=3,
                         stride=2,
                         padding=1,
-                        norm_layer=norm_layer,
-                        activation_layer=activation_layer,
                         **cur_conv_kwargs
                     )
                 ]
@@ -491,8 +418,6 @@ class FFCResNetGenerator(nn.Module):
                         kernel_size=3,
                         stride=2,
                         padding=1,
-                        norm_layer=norm_layer,
-                        activation_layer=activation_layer,
                         **cur_conv_kwargs
                     )
                 ]
@@ -501,9 +426,8 @@ class FFCResNetGenerator(nn.Module):
         feats_num_bottleneck = min(max_features, ngf * mult)
         ### resnet blocks
         for i in range(n_blocks):  # n_blocks -- 18
-            cur_resblock = FFCResnetBlock(
-                feats_num_bottleneck, activation_layer=activation_layer, norm_layer=norm_layer
-            )
+            cur_resblock = FFCResnetBlock(feats_num_bottleneck)
+
             model += [cur_resblock]
 
         model += [ReduceTupleLayer()]
@@ -528,6 +452,36 @@ class FFCResNetGenerator(nn.Module):
         model.append(nn.Sigmoid())
 
         self.model = nn.Sequential(*model)
+
+        self.load_weights()
+        self.eval()
+
+
+    def load_weights(self, model_path="models/image_patch.pth"):
+        cdir = os.path.dirname(__file__)
+        checkpoint = model_path if cdir == "" else cdir + "/" + model_path
+
+        if not os.path.exists(checkpoint):
+            raise IOError(f"Model checkpoint '{checkpoint}' doesn't exist.")
+
+        # state_dict = torch.load(checkpoint, map_location=lambda storage, loc: storage)
+        state_dict = torch.load(checkpoint, map_location=torch.device("cpu"))
+        if 'state_dict' in state_dict:
+            state_dict = state_dict['state_dict']
+
+        target_state_dict = self.state_dict()
+        for n, p in state_dict.items():
+            if 'val_evaluator.scores' in n:
+                continue
+            if 'test_evaluator.scores' in n:
+                continue
+
+            n = n.replace("generator.", "")
+            if n in target_state_dict.keys():
+                target_state_dict[n].copy_(p)
+            else:
+                raise KeyError(n)
+
 
     def forward(self, input):
         # input.size() -- [1, 4, 1000, 1504], input[:, 3:4, :, :].mean() -- 0.1590
