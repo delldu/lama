@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import math
 from torch.autograd import Function
+from torch.onnx import symbolic_helper
 
 from typing import Tuple
 
@@ -16,6 +17,25 @@ import pdb
 # https://github.com/onnx/onnx/issues/4845
 # https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Rfft
 # https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Irfft
+
+# https://github.com/Alexey-Kamenev/tensorrt-dft-plugins
+
+# Same as rfftn for 4D-tensor
+
+
+# RFFT is only supported on GPUs from https://github.com/NVIDIA/modulus/issues/42
+class OnnxRfft2(Function):
+    @staticmethod
+    def forward(ctx, input) -> torch.Value:
+        return torch.view_as_real(torch.fft.rfft2(input, dim=(-2, -1), norm="backward"))
+
+    @staticmethod
+    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
+        return g.op(
+            "com.microsoft::Rfft",
+            input, normalized_i=0, onesided_i=1, signal_ndim_i=2
+        )
+onnx_rfftn = OnnxRfft2.apply
 
 class OnnxComplex(Function):
     """Auto-grad function to mimic irfft for ONNX exporting
@@ -27,41 +47,34 @@ class OnnxComplex(Function):
     @staticmethod
     def symbolic(g: torch.Graph, input1: torch.Value, input2: torch.Value) -> torch.Value:
         """Symbolic representation for onnx graph"""
+        input1 = symbolic_helper._unsqueeze_helper(g, input1, [-1])
+        input2 = symbolic_helper._unsqueeze_helper(g, input2, [-1])
         return g.op("Concat", input1, input2, axis_i=-1)
+
 onnx_complex = OnnxComplex.apply
 
 
-# https://github.com/Alexey-Kamenev/tensorrt-dft-plugins
-# Same as rfftn for 4D-tensor
-class OnnxRfft2(Function):
-    @staticmethod
-    def forward(ctx, input) -> torch.Value:
-        return torch.view_as_real(torch.fft.rfft2(input, dim=(-2, -1), norm="backward"))
-
-    @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
-        return g.op(
-            "com.microsoft::Rfft", input, normalized_i=0, onesided_i=1, signal_ndim_i=2
-            )
-onnx_rfftn = OnnxRfft2.apply
-
-# Same as irfftn for 4D-tensor
+#Same as irfftn for 4D-tensor
 class OnnxIrfft2(Function):
     @staticmethod
     def forward(ctx, input) -> torch.Value:
         # return torch.fft.irfft2(
         #     torch.view_as_complex(input), dim=(-2, -1), norm="backward"
         # )
-        # input is Complex ...
-        return torch.fft.irfft2(
+        # input is Complex ..., size() -- [1, 192, 128, 65]
+        y = torch.fft.irfft2(
             input, dim=(-2, -1), norm="backward"
         )
+        return y # is real, size() -- [1, 192, 128, 128]
 
     @staticmethod
     def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
         return g.op(
             "com.microsoft::Irfft", input, normalized_i=0, onesided_i=1, signal_ndim_i=2
             )
+
+
+
 onnx_irfftn = OnnxIrfft2.apply
 
 class FourierUnit(nn.Module):
@@ -85,34 +98,33 @@ class FourierUnit(nn.Module):
     def forward(self, x):
         B, C, H, W = x.size()
 
-        # x.size() -- [1, 192, 125, 188]
+        # x.size() -- [1, 192, 128, 128]
         # ffted = torch.fft.rfftn(x, dim=(2, 3), norm="ortho")
         ffted = onnx_rfftn(x)
 
-        # ffted.size() -- [1, 192, 125, 95], torch.complex64
-        # ffted = torch.stack((ffted.real, ffted.imag), dim=-1) # [1, 192, 125, 95, 2]
-        ffted = torch.stack((ffted[..., 0], ffted[..., 1]), dim=-1) # [1, 192, 125, 95, 2]
+        # ffted = torch.stack((ffted.real, ffted.imag), dim=-1)
+        ffted = torch.stack((ffted[..., 0], ffted[..., 1]), dim=-1) # [1, 192, 128, 65, 2]
 
-        ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # [1, 192, 2, 125, 95], (B, c, 2, h, w/2+1)
-        ffted = ffted.view((B, -1, ) + ffted.size()[3:]) # [1, 384, 125, 95]
+        ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # [1, 192, 2, 128, 65], (B, c, 2, h, w/2+1)
+        ffted = ffted.view((B, -1, ) + ffted.size()[3:]) # [1, 384, 128, 65]
 
-        ffted = self.conv_layer(ffted)  # [1, 384, 125, 95] (B, c*2, h, w/2+1)
+        ffted = self.conv_layer(ffted)  # [1, 384, 128, 65] (B, c*2, h, w/2+1)
         ffted = self.relu(self.bn(ffted))
 
         ffted = (
             ffted.view((B, -1, 2, ) + ffted.size()[2:])
             .permute(0, 1, 3, 4, 2)
             .contiguous()
-        )
+        ) # [1, 192, 128, 65, 2] torch.float32
 
-        # [1, 192, 2, 125, 95] ==> [1, 192, 125, 95, 2], (B, c, t, h, w/2+1, 2)
         # ffted = torch.complex(ffted[..., 0], ffted[..., 1])
         ffted = onnx_complex(ffted[..., 0], ffted[..., 1])
+        # ffted.size() -- [1, 192, 128, 65], Complex
 
         # output = torch.fft.irfftn(ffted, dim=(2, 3), norm="ortho")
         output = onnx_irfftn(ffted)
 
-        return output # [1, 192, 125, 188]
+        return output # [1, 192, 128, 128], real
 
 
 class SpectralTransform(nn.Module):

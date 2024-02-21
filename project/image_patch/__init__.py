@@ -20,11 +20,20 @@ from . import patch
 
 import pdb
 
+def get_fourier_model():
+    model =  patch.FourierUnit(in_channels=192, out_channels=192)
+
+    device = todos.model.get_device()
+    model = model.to(device)
+    model.eval()
+    print(f"Running tvm model model on {device} ...")
+
+    return model, device
+
+
+
 def get_trace_model():
-    """
-    TVM model base on torch.jit.trace
-    """
-    model = patch.FourierUnit(in_channels=192, out_channels=192) # FFCResNetGenerator()
+    model =  patch.FFCResNetGenerator() # patch.FourierUnit(in_channels=192, out_channels=192)
 
     device = todos.model.get_device()
     model = model.to(device)
@@ -46,17 +55,17 @@ def get_patch_model():
 
     print(f"Running on {device} ...")
 
-    # # make sure model good for C/C++
-    # model = torch.jit.script(model)
-    # # https://github.com/pytorch/pytorch/issues/52286
-    # torch._C._jit_set_profiling_executor(False)
-    # # C++ Reference
-    # # torch::jit::getProfilingMode() = false;                                                                                                             
-    # # torch::jit::setTensorExprFuserEnabled(false);
+    # make sure model good for C/C++
+    model = torch.jit.script(model)
+    # https://github.com/pytorch/pytorch/issues/52286
+    torch._C._jit_set_profiling_executor(False)
+    # C++ Reference
+    # torch::jit::getProfilingMode() = false;                                                                                                             
+    # torch::jit::setTensorExprFuserEnabled(false);
 
-    # todos.data.mkdir("output")
-    # if not os.path.exists("output/image_patch.torch"):
-    #     model.save("output/image_patch.torch")
+    todos.data.mkdir("output")
+    if not os.path.exists("output/image_patch.torch"):
+        model.save("output/image_patch.torch")
 
     return model, device
 
