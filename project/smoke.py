@@ -74,19 +74,20 @@ def export_onnx_model():
     import onnx
     import onnxruntime
     from onnxsim import simplify
+    # from image_patch.onnxe import fft_fft, real, imag, complex, fft_ifft, fft_irfft
 
     print("Export onnx model ...")
 
     # 1. Run torch model
-    model, device = image_patch.get_patch_model()
+    model, device = image_patch.get_trace_model() # get_patch_model()
 
-    B, C, H, W = 1, 4, model.MAX_H, model.MAX_W
+    B, C, H, W = 1, 192, 128, 128 # 1, 4, 512, 512 # model.MAX_H, model.MAX_W
     dummy_input = torch.randn(B, C, H, W).to(device)
     with torch.no_grad():
         dummy_output = model(dummy_input)
     torch_outputs = [dummy_output.cpu()]
 
-    
+    print("CheckPoint 1 .....................")
     # 2. Export onnx model
     input_names = [ "input" ]
     output_names = [ "output" ]
@@ -96,12 +97,26 @@ def export_onnx_model():
     }
     onnx_filename = "output/image_patch.onnx"
 
+    print("CheckPoint 2 .....................")
+
     torch.onnx.export(model, dummy_input, onnx_filename, 
-        verbose=False, 
+        verbose=True, 
         input_names=input_names, 
         output_names=output_names,
+        opset_version=17,
         # dynamic_axes=dummy_output,
     )
+
+    print("CheckPoint 3 .....................")
+
+    # export_options = torch.onnx.ExportOptions(op_level_debug=True)
+    # onnx_program = torch.onnx.dynamo_export(model, dummy_input,
+    #     export_options=export_options,
+    # )
+    # onnx_program.save(onnx_filename)
+
+    print("CheckPoint 4 .....................")
+
 
     # 3. Check onnx model file
     onnx_model = onnx.load(onnx_filename)
@@ -111,6 +126,8 @@ def export_onnx_model():
     assert check, "Simplified ONNX model could not be validated"
     onnx.save(onnx_model, onnx_filename)
     # print(onnx.helper.printable_graph(onnx_model.graph))
+
+    print("CheckPoint 5 .....................")
 
     # 4. Run onnx model
     if 'cuda' in device.type:
