@@ -14,91 +14,8 @@ import pdb
 
 # https://zhuanlan.zhihu.com/p/653745531
 # https://github.com/onnx/onnx/issues/4845
-class OnnxRfft(Function):
-    """Auto-grad function to mimic rfft for ONNX exporting
-    """
-    @staticmethod
-    def forward(ctx, input, dim: int):
-        y = torch.fft.rfft(input, dim=dim, norm="backward")
-        return torch.view_as_real(y)
-
-    @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value, dim: int) -> torch.Value:
-        # See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Rfft
-        output = g.op(
-            "com.microsoft::Rfft",
-            input,
-            normalized_i=0,
-            onesided_i=1,
-            signal_ndim_i=dim,
-        )
-
-        return output
-onnx_rfft = OnnxRfft.apply
-
-class OnnxFft(Function):
-    """Auto-grad function to mimic rfft for ONNX exporting
-    """
-    @staticmethod
-    def forward(ctx, input, dim: int):
-        # We need to mimic the behavior of Contrib RFFT which assumes
-        # DFT of last dim and no normalization.
-        y = torch.fft.fft(input, dim=dim, norm="backward")
-        return y # torch.view_as_real(y)
-
-    @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value, dim: int) -> torch.Value:
-        # See https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Rfft
-        output = g.op(
-            "com.microsoft::Rfft",
-            input,
-            normalized_i=0,
-            onesided_i=0, # same as OnnxRfft, but two-side ouput
-            signal_ndim_i=dim,
-        )
-
-        return output
-onnx_fft=OnnxFft.apply
-
-class OnnxIrfft(Function):
-    """Auto-grad function to mimic irfft for ONNX exporting
-    """
-    @staticmethod
-    def forward(ctx, input, dim: int):
-        # input is complex64
-        return torch.fft.irfft(input, dim=dim, norm="backward") # output -- real
-
-    @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
-        """Symbolic representation for onnx graph"""
-        return g.op(
-                "com.microsoft::Irfft",
-                input,
-                normalized_i=0,
-                onesided_i=1, 
-                signal_ndim_i=dim,
-            )
-onnx_irfft=OnnxIrfft.apply
-
-class OnnxIfft(Function):
-    """Auto-grad function to mimic irfft for ONNX exporting
-    """
-    @staticmethod
-    def forward(ctx, input, dim:int):
-        # return torch.fft.ifft(torch.view_as_complex(input), dim=dim, norm="backward")
-        return torch.fft.ifft(input, dim=dim, norm="backward")
-
-    @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value, dim:int) -> torch.Value:
-        """Symbolic representation for onnx graph"""
-        return g.op(
-                "com.microsoft::Irfft",
-                input,
-                normalized_i=0,
-                onesided_i=0, # same as OnnxIrfft, two-side ouput
-                signal_ndim_i=dim,
-            )
-onnx_ifft=OnnxIfft.apply
+# https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Rfft
+# https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Irfft
 
 class OnnxComplex(Function):
     """Auto-grad function to mimic irfft for ONNX exporting
@@ -114,27 +31,38 @@ class OnnxComplex(Function):
 onnx_complex = OnnxComplex.apply
 
 
-def rfftn(input, dim: Tuple[int, int]):
-    D2, D3 = dim
-    # input is real, size() -- [1, 192, 125, 188]
-    S2:int = input.shape[D2]
-    S3:int = input.shape[D3]
+# https://github.com/Alexey-Kamenev/tensorrt-dft-plugins
+# Same as rfftn for 4D-tensor
+class OnnxRfft2(Function):
+    @staticmethod
+    def forward(ctx, input) -> torch.Value:
+        return torch.view_as_real(torch.fft.rfft2(input, dim=(-2, -1), norm="backward"))
 
-    output = onnx_fft(input, D2) # as rfft but two-side ouput, complex64
-    output = onnx_fft(output, D3) # complex64
-    output = torch.index_select(output, D3, torch.arange(S3//2+1).to(input.device))
+    @staticmethod
+    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
+        return g.op(
+            "com.microsoft::Rfft", input, normalized_i=0, onesided_i=1, signal_ndim_i=2
+            )
+onnx_rfftn = OnnxRfft2.apply
 
-    return output/math.sqrt(S2)/math.sqrt(S3) # output.dtype is torch.complex64, size() -- 1, 192, 125, 95]
+# Same as irfftn for 4D-tensor
+class OnnxIrfft2(Function):
+    @staticmethod
+    def forward(ctx, input) -> torch.Value:
+        # return torch.fft.irfft2(
+        #     torch.view_as_complex(input), dim=(-2, -1), norm="backward"
+        # )
+        # input is Complex ...
+        return torch.fft.irfft2(
+            input, dim=(-2, -1), norm="backward"
+        )
 
-
-def irfftn(input, sl: Tuple[int, int], dim: Tuple[int, int]):
-    H, W = sl
-    D2, D3 = dim
-    # input is torch.complex64, size() -- [1, 192, 125, 95]
-    output = onnx_ifft(input, D2) # torch.complex64, torch.Size([1, 192, 125, 95]
-    output = onnx_irfft(output, D3) # torch.complex64, torch.Size([1, 192, 125, 95]
-
-    return output*math.sqrt(H)*math.sqrt(W) # torch.float32, torch.Size([1, 192, 125, 188]
+    @staticmethod
+    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
+        return g.op(
+            "com.microsoft::Irfft", input, normalized_i=0, onesided_i=1, signal_ndim_i=2
+            )
+onnx_irfftn = OnnxIrfft2.apply
 
 class FourierUnit(nn.Module):
     '''2D Fourier'''
@@ -153,22 +81,17 @@ class FourierUnit(nn.Module):
         )
         self.bn = nn.BatchNorm2d(out_channels * 2)
         self.relu = nn.ReLU(inplace=True)
-        # FourierUnit(
-        #   (conv_layer): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
-        #   (bn): BatchNorm2d(384, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
-        #   (relu): ReLU(inplace=True)
-        # )
 
     def forward(self, x):
         B, C, H, W = x.size()
 
         # x.size() -- [1, 192, 125, 188]
         # ffted = torch.fft.rfftn(x, dim=(2, 3), norm="ortho")
-        ffted = rfftn(x, dim=(2, 3))
-        # ffted.size() -- [1, 192, 125, 95], torch.complex64
+        ffted = onnx_rfftn(x)
 
+        # ffted.size() -- [1, 192, 125, 95], torch.complex64
         # ffted = torch.stack((ffted.real, ffted.imag), dim=-1) # [1, 192, 125, 95, 2]
-        ffted = torch.stack((ffted.real, ffted.imag), dim=-1) # [1, 192, 125, 95, 2]
+        ffted = torch.stack((ffted[..., 0], ffted[..., 1]), dim=-1) # [1, 192, 125, 95, 2]
 
         ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # [1, 192, 2, 125, 95], (B, c, 2, h, w/2+1)
         ffted = ffted.view((B, -1, ) + ffted.size()[3:]) # [1, 384, 125, 95]
@@ -186,9 +109,8 @@ class FourierUnit(nn.Module):
         # ffted = torch.complex(ffted[..., 0], ffted[..., 1])
         ffted = onnx_complex(ffted[..., 0], ffted[..., 1])
 
-        # output = torch.fft.irfftn(ffted, s=(H, W), dim=(2, 3), norm="ortho")
         # output = torch.fft.irfftn(ffted, dim=(2, 3), norm="ortho")
-        output = irfftn(ffted, sl=(H, W), dim=(2, 3))
+        output = onnx_irfftn(ffted)
 
         return output # [1, 192, 125, 188]
 
