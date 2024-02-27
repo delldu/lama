@@ -26,7 +26,7 @@ def get_fourier_model():
     device = todos.model.get_device()
     model = model.to(device)
     model.eval()
-    print(f"Running tvm model model on {device} ...")
+    print(f"Running model on {device} ...")
 
     return model, device
 
@@ -38,7 +38,7 @@ def get_trace_model():
     device = todos.model.get_device()
     model = model.to(device)
     model.eval()
-    print(f"Running tvm model model on {device} ...")
+    print(f"Running model on {device} ...")
 
     return model, device
 

@@ -5,7 +5,8 @@
 import os
 import torch
 import torch.nn as nn
-import math
+import torch.nn.functional as F
+
 from torch.autograd import Function
 from torch.onnx import symbolic_helper
 
@@ -17,12 +18,10 @@ import pdb
 # https://github.com/onnx/onnx/issues/4845
 # https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Rfft
 # https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Irfft
-
 # https://github.com/Alexey-Kamenev/tensorrt-dft-plugins
+# https://github.com/microsoft/onnxruntime/issues/13279
 
-# Same as rfftn for 4D-tensor
-
-
+# torch.fft.rfft2 is same as rfftn for 4D-tensor
 # RFFT is only supported on GPUs from https://github.com/NVIDIA/modulus/issues/42
 class OnnxRfft2(Function):
     @staticmethod
@@ -37,6 +36,7 @@ class OnnxRfft2(Function):
         )
 onnx_rfftn = OnnxRfft2.apply
 
+
 class OnnxComplex(Function):
     """Auto-grad function to mimic irfft for ONNX exporting
     """
@@ -50,11 +50,10 @@ class OnnxComplex(Function):
         input1 = symbolic_helper._unsqueeze_helper(g, input1, [-1])
         input2 = symbolic_helper._unsqueeze_helper(g, input2, [-1])
         return g.op("Concat", input1, input2, axis_i=-1)
-
 onnx_complex = OnnxComplex.apply
 
 
-#Same as irfftn for 4D-tensor
+# torch.fft.irfft2 is same as irfftn for 4D-tensor
 class OnnxIrfft2(Function):
     @staticmethod
     def forward(ctx, input) -> torch.Value:
@@ -62,20 +61,15 @@ class OnnxIrfft2(Function):
         #     torch.view_as_complex(input), dim=(-2, -1), norm="backward"
         # )
         # input is Complex ..., size() -- [1, 192, 128, 65]
-        y = torch.fft.irfft2(
-            input, dim=(-2, -1), norm="backward"
-        )
-        return y # is real, size() -- [1, 192, 128, 128]
+        return torch.fft.irfft2(input, dim=(-2, -1), norm="backward") # output is real, size() -- [1, 192, 128, 128]
 
     @staticmethod
     def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
         return g.op(
             "com.microsoft::Irfft", input, normalized_i=0, onesided_i=1, signal_ndim_i=2
             )
-
-
-
 onnx_irfftn = OnnxIrfft2.apply
+
 
 class FourierUnit(nn.Module):
     '''2D Fourier'''
@@ -440,7 +434,7 @@ class FFCResNetGenerator(nn.Module):
         super().__init__()
         self.MAX_H = 1024
         self.MAX_W = 1024
-        self.MAX_TIMES = 4
+        self.MAX_TIMES = 16
         # Define max GPU/CPU memory -- 5G(1024x2048), 530ms
 
         resnet_conv_kwargs = {
@@ -553,6 +547,9 @@ class FFCResNetGenerator(nn.Module):
         # input.size() -- [1, 4, 1000, 1504], input[:, 3:4, :, :].mean() -- 0.1590
         B, C, H, W = input.size()
         assert C == 4  # Make input is Bx4xHxW
+        pad_h = self.MAX_TIMES - (H % self.MAX_TIMES)
+        pad_w = self.MAX_TIMES - (W % self.MAX_TIMES)
+        input = F.pad(input, (0, pad_w, 0, pad_h), 'reflect')
 
         # input
         input_mask = input[:, 3:4, :, :]
@@ -567,4 +564,5 @@ class FFCResNetGenerator(nn.Module):
         output_tensor = output_tensor[:, :, 0:H, 0:W].clamp(0.0, 1.0)
         output_mask = torch.ones(B, 1, H, W).to(input.device)
 
-        return torch.cat((output_tensor, output_mask), dim=1)
+        output = torch.cat((output_tensor, output_mask), dim=1)
+        return output[:, :, 0:H, 0:W]

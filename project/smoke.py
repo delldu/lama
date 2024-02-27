@@ -74,6 +74,7 @@ def export_onnx_model():
     import onnx
     import onnxruntime
     from onnxsim import simplify
+    import onnxoptimizer
 
     print("Export onnx model ...")
 
@@ -112,6 +113,7 @@ def export_onnx_model():
 
     onnx_model, check = simplify(onnx_model)
     assert check, "Simplified ONNX model could not be validated"
+    onnx_model = onnxoptimizer.optimize(onnx_model)    
     onnx.save(onnx_model, onnx_filename)
     # print(onnx.helper.printable_graph(onnx_model.graph))
 
