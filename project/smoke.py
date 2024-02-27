@@ -103,8 +103,8 @@ def export_onnx_model():
         verbose=False, 
         input_names=input_names, 
         output_names=output_names,
-        opset_version=17,
-        # dynamic_axes=dummy_output,
+        # opset_version=17,
+        dynamic_axes=dynamic_axes,
     )
 
     # 3. Check onnx model file
