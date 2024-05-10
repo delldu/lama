@@ -25,7 +25,7 @@ def test_input_shape():
     model, device = image_patch.get_patch_model()
 
     N = 100
-    B, C, H, W = 1, 4, model.max_h, model.max_w
+    B, C, H, W = 1, 4, model.MAX_H, model.MAX_W
 
     mean_time = 0
     progress_bar = tqdm(total=N)
@@ -54,7 +54,7 @@ def run_bench_mark():
     model, device = image_patch.get_patch_model()
 
     N = 100
-    B, C, H, W = 1, 4, model.max_h, model.max_w
+    B, C, H, W = 1, 4, model.MAX_H, model.MAX_W
 
     with torch.profiler.profile(
         activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]
@@ -83,7 +83,7 @@ def export_onnx_model():
     # model, device = image_patch.get_fourier_model()
 
     B, C, H, W =1, 4, 512, 512 # model.MAX_H, model.MAX_W
-    model, device = image_patch.get_trace_model() # get_patch_model()
+    model, device = image_patch.get_trace_model() # get_patch_model() # 
 
     dummy_input = torch.randn(B, C, H, W).to(device)
     with torch.no_grad():

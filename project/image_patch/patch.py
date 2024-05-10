@@ -432,10 +432,10 @@ class FFCResNetGenerator(nn.Module):
         max_features=1024,
     ):
         super().__init__()
-        self.MAX_H = 1024
-        self.MAX_W = 1024
-        self.MAX_TIMES = 16
-        # Define max GPU/CPU memory -- 5G(1024x2048), 530ms
+        self.MAX_H = 2048
+        self.MAX_W = 4096
+        self.MAX_TIMES = 32
+        # GPU -- 2048x4096, 6.8G, 2120ms
 
         resnet_conv_kwargs = {
             "ratio_gin": 0.75,
@@ -487,7 +487,6 @@ class FFCResNetGenerator(nn.Module):
         ### resnet blocks
         for i in range(n_blocks):  # n_blocks -- 18
             cur_resblock = FFCResnetBlock(feats_num_bottleneck)
-
             model += [cur_resblock]
 
         model += [ReduceTupleLayer()]
@@ -547,8 +546,9 @@ class FFCResNetGenerator(nn.Module):
         # input.size() -- [1, 4, 1000, 1504], input[:, 3:4, :, :].mean() -- 0.1590
         B, C, H, W = input.size()
         assert C == 4  # Make input is Bx4xHxW
-        pad_h = self.MAX_TIMES - (H % self.MAX_TIMES)
-        pad_w = self.MAX_TIMES - (W % self.MAX_TIMES)
+        pad_h = (self.MAX_TIMES - (H % self.MAX_TIMES)) % self.MAX_TIMES
+        pad_w = (self.MAX_TIMES - (W % self.MAX_TIMES)) % self.MAX_TIMES
+
         input = F.pad(input, (0, pad_w, 0, pad_h), 'reflect')
 
         # input
