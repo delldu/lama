@@ -1726,6 +1726,19 @@ def test_ggml_rfft2():
 
 #     return output
 
+def ggml_nn_conv_transpose2d(ctx, x, in_channels, out_channels, kernel_size, stride_size, padding, output_padding, weight, bias):
+    B, C, H, W = x.size()
+    weight = ggml.ggml_cast(ctx, weight, ggml.GGML_TYPE_F16)
+    bias = ggml.ggml_reshape_4d(ctx, bias, 1, 1, out_channels, 1)
+
+    y = ggml.ggml_conv_transpose_2d_p0(ctx, weight, x, stride)
+    bias = ggml.ggml_repeat(ctx, bias, y)
+    y = ggml_nn_slice(ctx, y, 0, 1, stride * W + 1, 1)
+    y = ggml_nn_slice(ctx, y, 1, 1, stride * H + 1, 1)
+    y = ggml.ggml_add(ctx, y, bias)
+    return y
+
+
 def test_conv_transposed2d():
     print("test_conv_transposed2d ...")
     print(">" * 80)
@@ -1759,7 +1772,7 @@ def test_conv_transposed2d():
     ctx = ggml_new_ctx()
     g_x = ggml_tensor(ctx, x)
     g_weight = ggml_tensor(ctx, state_dict['weight'])
-    g_weight = ggml.ggml_cast(ctx, g_weight, ggml.GGML_TYPE_F16)
+    # g_weight = ggml.ggml_cast(ctx, g_weight, ggml.GGML_TYPE_F16)
     g_bias = ggml_tensor(ctx, state_dict['bias'])
 
     # --------------------------------------------------------------------------------------
@@ -1768,14 +1781,19 @@ def test_conv_transposed2d():
     #         struct ggml_tensor  * a,
     #         struct ggml_tensor  * b,
     #         int                   stride);
-    stride = 2
-    gy = ggml.ggml_conv_transpose_2d_p0(ctx, g_weight, g_x, stride)
-    gy = ggml_nn_slice(ctx, gy, 0, 1, stride * W + 1, 1)
-    gy = ggml_nn_slice(ctx, gy, 1, 1, stride * H + 1, 1)
-    # gy = ggml.ggml_upscale_ext(ctx, gy, stride * W, stride * H, out_channels, B)
-    g_bias = ggml.ggml_reshape_4d(ctx, g_bias, 1, 1, out_channels, 1)
-    g_bias = ggml.ggml_repeat(ctx, g_bias, gy)
-    gy = ggml.ggml_add(ctx, gy, g_bias)
+
+
+    # stride = 2
+    # gy = ggml.ggml_conv_transpose_2d_p0(ctx, g_weight, g_x, stride)
+    # gy = ggml_nn_slice(ctx, gy, 0, 1, stride * W + 1, 1)
+    # gy = ggml_nn_slice(ctx, gy, 1, 1, stride * H + 1, 1)
+    # # gy = ggml.ggml_upscale_ext(ctx, gy, stride * W, stride * H, out_channels, B)
+    # g_bias = ggml.ggml_reshape_4d(ctx, g_bias, 1, 1, out_channels, 1)
+    # g_bias = ggml.ggml_repeat(ctx, g_bias, gy)
+    # gy = ggml.ggml_add(ctx, gy, g_bias)
+    gy = ggml_nn_conv_transpose2d(ctx, g_x, in_channels, out_channels, kernel_size, stride_size, padding, \
+            output_padding, g_weight, g_bias)
+
 
     ggml_compute(ctx, gy)
     # --------------------------------------------------------------------------------------
