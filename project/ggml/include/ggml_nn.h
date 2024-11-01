@@ -134,6 +134,54 @@ struct Conv2d {
     }
 };
 
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
+// class torch.nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, 
+//     bias=True, dilation=1, padding_mode='zeros', device=None, dtype=None)
+
+ggml_tensor_t* ggml_nn_conv_transpose_2d(ggml_context_t* ctx, ggml_tensor_t* x, ggml_tensor_t* w,
+    ggml_tensor_t* b, int stride, int padding, int output_padding);
+
+// --------------------------------------------------------------------------
+struct ConvTranspose2d {
+    int64_t in_channels;
+    int64_t out_channels;
+
+    // Fixed defaults ...
+    int kernel_size = 3;
+    int stride = 2;
+    int padding = 1;
+    int dilation = 1;
+    int output_padding = 1;
+
+    bool has_bias = true;
+
+    ggml_tensor_t* weight;
+    ggml_tensor_t* bias = NULL;
+
+    void create_weight_tensors(ggml_context_t* ctx, ggml_type wtype=GGML_TYPE_F16)
+    {
+        weight = ggml_new_tensor_4d(ctx, wtype, kernel_size, kernel_size, out_channels, in_channels);
+        if (has_bias) {
+            bias = ggml_new_tensor_1d(ctx, (wtype == GGML_TYPE_Q8_0)? GGML_TYPE_F16 : GGML_TYPE_F32, out_channels);
+        }
+    }
+
+    void setup_weight_names(const char* prefix)
+    {
+        ggml_format_name(weight, "%s%s", prefix, "weight");
+        if (has_bias) {
+            ggml_format_name(bias, "%s%s", prefix, "bias");
+        }
+    }
+
+    ggml_tensor_t* forward(ggml_context_t* ctx, ggml_tensor_t* x)
+    {
+        return ggml_nn_conv_transpose_2d(ctx, x, weight, bias, stride, padding, output_padding);
+    }
+};
+
+
 
 // ----------------------------------------------------------------------------------------------------------------------------------------
 // https://pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html
@@ -275,30 +323,6 @@ struct PixelShuffle {
     }
 };
 
-
-ggml_tensor_t* ggml_shuffle2(ggml_context_t *ctx, ggml_tensor_t *x, int R);
-struct PixelShuffle2 {
-    int upscale_factor;
-
-    void create_weight_tensors(ggml_context_t* ctx)
-    {
-        GGML_UNUSED(ctx);
-    }
-
-    void setup_weight_names(const char* prefix)
-    {
-        GGML_UNUSED(prefix);
-    }
-
-    ggml_tensor_t* forward(ggml_context_t* ctx, ggml_tensor_t* x)
-    {
-        x = ggml_cont(ctx, x);
-
-        return ggml_shuffle2(ctx, x, upscale_factor);
-    }
-};
-
-
 // ----------------------------------------------------------------------------------------------------------------------------------------
 // https://pytorch.org/docs/stable/generated/torch.nn.PixelUnshuffle.html
 // class torch.nn.PixelUnshuffle(downscale_factor)[source] -- convert x from (B, C, H×r, W×r) to (B, C×r*r, H, W)
@@ -377,6 +401,19 @@ ggml_tensor_t* ggml_nn_conv_2d(ggml_context_t* ctx, ggml_tensor_t* x, ggml_tenso
 
     return x;
 }
+
+ggml_tensor_t* ggml_nn_conv_transpose_2d(ggml_context_t* ctx, ggml_tensor_t* x, ggml_tensor_t* w,
+    ggml_tensor_t* b, int stride, int padding, int output_padding)
+{
+    // xxxx_debug ...
+    if (b != NULL) {
+        b = ggml_cont(ctx, ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1));
+        x = ggml_add(ctx, x, b);
+    }
+
+    return x;
+}
+
 
 ggml_tensor_t* ggml_nn_layer_norm(ggml_context_t* ctx, ggml_tensor_t* x, ggml_tensor_t* w, ggml_tensor_t* b, float eps)
 {
@@ -615,47 +652,6 @@ ggml_tensor_t* ggml_nn_grid_x(ggml_context_t *ctx, ggml_tensor_t *x, int w)
     return ggml_cont(ctx, y);
 }
 
-
-void shuffle_map_function(struct ggml_tensor * dst , const struct ggml_tensor * a, const struct ggml_tensor * x, int ith, int nth, void * userdata)
-{
-    int R = (int)dst->ne[0]/x->ne[0];
-
-    int W = (int)dst->ne[0];
-    int H = (int)dst->ne[1];
-    int C = (int)dst->ne[2];
-    int B = (int)dst->ne[3];
-
-    // assert(ggml_is_contiguous(dst));
-    // assert(ggml_is_contiguous(x));
-
-    for (int d_w = 0; d_w < W; d_w++) {
-        for (int d_h = 0; d_h < H; d_h++) {
-            for (int d_c = 0; d_c < C; d_c++) {
-                int s_c = d_c * R * R + (d_h % R) * R + (d_w % R);
-                for (int d_b = 0; d_b < B; d_b++) {
-                    float value = ggml_get_f32_nd(x, d_w/R, d_h/R, s_c, d_b);
-                    ggml_set_f32_nd(dst, d_w, d_h, d_c, d_b, value);
-                }
-            }
-        }
-    }    
-}
-
-// convert x from (∗,C*r*2, H, W) to (∗, C, H*r, W*r)
-ggml_tensor_t* ggml_shuffle2(ggml_context_t *ctx, ggml_tensor_t *x, int R)
-{
-    int W = (int)x->ne[0];
-    int H = (int)x->ne[1];
-    int C = (int)x->ne[2];
-    int B = (int)x->ne[3];
-    ggml_tensor_t *a = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, W * R, H * R, C/R/R, B);
-
-    // Info: ab512x512_output Tensor: 1x2x512x512
-    // min: -0.2172, max: 18.2802, mean: 2.6995
-    // 2.9144 3.3102 3.4971 4.6417 4.7460 3.7708 3.5458 4.0235 4.0816 3.2961 ... 0.5322 0.6510 0.5331 0.5985 0.9907 1.4848 1.6555 1.7430 2.3764 1.3851 
-
-    return ggml_map_custom2(ctx, a, x, shuffle_map_function, GGML_N_TASKS_MAX, NULL);
-}
 
 ggml_tensor_t* ggml_nn_arange(ggml_context_t *ctx, ggml_tensor_t *x)
 {
