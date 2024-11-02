@@ -95,9 +95,9 @@ ggml_tensor_t* ggml_nn_conv_2d(ggml_context_t* ctx, ggml_tensor_t * x, ggml_tens
 struct Conv2d {
     int64_t in_channels;
     int64_t out_channels;
-    std::pair<int, int> kernel_size;
 
     // Fixed defaults ...
+    std::pair<int, int> kernel_size = {3, 3};
     std::pair<int, int> stride = { 1, 1 };
     std::pair<int, int> padding = { 0, 0 };
     std::pair<int, int> dilation = { 1, 1 };
@@ -406,12 +406,20 @@ ggml_tensor_t* ggml_nn_conv_transpose_2d(ggml_context_t* ctx, ggml_tensor_t* x, 
     ggml_tensor_t* b, int stride, int padding, int output_padding)
 {
     // xxxx_debug ...
-    if (b != NULL) {
-        b = ggml_cont(ctx, ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1));
-        x = ggml_add(ctx, x, b);
-    }
+    // if (b != NULL) {
+    //     b = ggml_cont(ctx, ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1));
+    //     x = ggml_add(ctx, x, b);
+    // }
+    // return x;
+    int W = (int)x->ne[0];
+    int H = (int)x->ne[1];
+    int C = (int)x->ne[2];
+    int B = (int)x->ne[3];
+    // state_dict['weight'] = torch.randn(in_channels, out_channels, kernel_size, kernel_size)
+    C = w->ne[2];
 
-    return x;
+    // return ggml_upscale_ext(ctx, x, stride*W, stride*H, C, B);
+    return ggml_new_tensor_4d(ctx, GGML_TYPE_F32, stride*W, stride*H, C, B);
 }
 
 
