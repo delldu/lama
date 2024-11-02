@@ -20,45 +20,56 @@
 #define DEFAULT_DEVICE 1
 #define DEFAULT_OUTPUT "output"
 
-static TENSOR* lab_blend(TENSOR* x1, TENSOR* x2)
+int pre_patch_tensor(TENSOR *x)
 {
-    // Create tensor from x1_l and x2_ab
-    BYTE r0, g0, b0;
-    float L, a, b; // , L2;
+    float *R, *G, *B, *A;
 
-    CHECK_TENSOR(x1);
-    CHECK_TENSOR(x2);
-    CHECK_POINT(x1->chan == 3 && x2->chan == 2);
+    check_tensor(x);
+    check_point(x->chan >= 4);
 
-    TENSOR* x = tensor_create(1, 3, x1->height, x1->width);
-    CHECK_TENSOR(x);
+    R = x->data;
+    G = R + x->height * x->width;
+    B = G + x->height * x->width;
+    A = B + x->height * x->width;
 
-    TENSOR* t = tensor_zoom(x2, x->height, x->width);
-    CHECK_TENSOR(t);
-
-    int skip = x->height * x->width;
-    for (int j = 0; j < x->height * x->width; j++) {
-        // Get L from x1
-        r0 = (BYTE)(x1->data[j] * 255.0);
-        g0 = (BYTE)(x1->data[j + skip] * 255.0);
-        b0 = (BYTE)(x1->data[j + 2 * skip] * 255.0);
-        color_rgb2lab(r0, g0, b0, &L, &a, &b);
-
-        // Get a, b from t
-        a = t->data[j];
-        b = t->data[j + skip];
-
-        // Save result to x
-        color_lab2rgb(L, a, b, &r0, &g0, &b0);
-
-        x->data[j] = float(r0) / 255.0;
-        x->data[j + skip] = float(g0) / 255.0;
-        x->data[j + 2 * skip] = float(b0) / 255.0;
+    for (int h = 0; h < x->height; h++) {
+        for (int w = 0; w < x->width; w++) {
+            if (*A < 0.9) {
+                *A = 1.0;
+                *R = *G = *B = 0.0;
+            } else {
+                *A = 0.0;
+            }
+            R++; G++; B++; A++;
+        }
     }
 
-    tensor_destroy(t);
+    return RET_OK;
+}
 
-    return x;
+int post_patch_tensor(TENSOR *x)
+{
+    float *R, *G, *B, *A;
+
+    check_tensor(x);
+    check_point(x->chan >= 4);
+
+    R = x->data;
+    G = R + x->height * x->width;
+    B = G + x->height * x->width;
+    A = B + x->height * x->width;
+
+    for (int h = 0; h < x->height; h++) {
+        for (int w = 0; w < x->width; w++) {
+            *R = CLAMP(*R, 0.0, 1.0);
+            *G = CLAMP(*G, 0.0, 1.0);
+            *B = CLAMP(*B, 0.0, 1.0);
+            *A = 1.0;
+            R++; G++; B++; A++;
+        }
+    }
+
+    return RET_OK;
 }
 
 
@@ -67,23 +78,24 @@ int image_patch_client(FFCResNetGenerator *net, char *input_filename, char *outp
     TENSOR *argv[1];
 
     printf("Patch %s to %s ...\n", input_filename, output_filename);
-    TENSOR *input_tensor = tensor_load_image(input_filename, 0 /*alpha*/);
+    TENSOR *input_tensor = tensor_load_image(input_filename, 1 /*alpha*/);
     check_tensor(input_tensor);
 
-    TENSOR *rgb512x512_input = tensor_zoom(input_tensor, 512, 512);
-    check_tensor(rgb512x512_input);
+    // self.MAX_H = 2048
+    // self.MAX_W = 4096
+    // self.MAX_TIMES = 32
+    const int MAX_TIMES = 32;
+    int H = input_tensor->height;
+    int W = input_tensor->width;
+    int pad_h = (MAX_TIMES - (H % MAX_TIMES)) % MAX_TIMES;
+    int pad_w = (MAX_TIMES - (W % MAX_TIMES)) % MAX_TIMES;
 
-    argv[0] = rgb512x512_input ;
-    TENSOR *ab512x512_output = net->engine_forward(ARRAY_SIZE(argv), argv);
+    if (tensor_border_pad_(input_tensor, 0 /*left*/, pad_w /*right*/, 0 /*top*/, pad_h /*bottom*/, PAD_METHOD_BORDER) != RET_OK)
+        return RET_ERROR;
+    pre_patch_tensor(input_tensor);
 
-    // ggml_set_name(x, "normalize");
-    // ggml_set_name(encoder_layers[0], "encoder_layers0");
-    // ggml_set_name(encoder_layers[1], "encoder_layers1");
-    // ggml_set_name(encoder_layers[2], "encoder_layers2");
-    // ggml_set_name(encoder_layers[3], "encoder_layers3");
-    // ggml_set_name(out_feat, "out_feat");
-    // ggml_set_name(out_ab, "out_ab");
-
+    argv[0] = input_tensor ;
+    TENSOR *output_tensor = net->engine_forward(ARRAY_SIZE(argv), argv);
 
     TENSOR *xxxx_test = net->get_output_tensor("normalize");
     if (tensor_valid(xxxx_test)) {
@@ -121,20 +133,15 @@ int image_patch_client(FFCResNetGenerator *net, char *input_filename, char *outp
         tensor_destroy(xxxx_test);
     }
 
-
-    if (tensor_valid(ab512x512_output)) {
-        tensor_show("ab512x512_output", ab512x512_output);
-
-        TENSOR* x = lab_blend(input_tensor, ab512x512_output);
-        check_tensor(x);
-        tensor_saveas_image(x, 0, output_filename);
-        tensor_destroy(x);
-        
-        tensor_destroy(ab512x512_output);
+    if (tensor_valid(output_tensor)) {
+        if (tensor_zeropad_(output_tensor, H, W) == RET_OK) {
+            post_patch_tensor(output_tensor);
+            tensor_saveas_image(output_tensor, 0 /*batch*/, output_filename);
+        }
+        tensor_destroy(output_tensor);
     }
-    tensor_destroy(rgb512x512_input);
-
     tensor_destroy(input_tensor);
+
 
     return 0;
 }
@@ -201,7 +208,7 @@ int main(int argc, char** argv)
         net.set_device(device_no);
         net.start_engine();
         net.load_weight(&model, "");
-        net.dump();
+        // net.dump();
 
         // net.dump();
         model.clear();
