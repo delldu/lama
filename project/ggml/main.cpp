@@ -97,45 +97,73 @@ int image_patch_client(FFCResNetGenerator *net, char *input_filename, char *outp
     argv[0] = input_tensor ;
     TENSOR *output_tensor = net->engine_forward(ARRAY_SIZE(argv), argv);
 
-    TENSOR *xxxx_test = net->get_output_tensor("normalize");
+    TENSOR *xxxx_test = net->get_output_tensor("input_tensor");
     if (tensor_valid(xxxx_test)) {
-        tensor_show("normalize", xxxx_test);
+        tensor_show("input_tensor", xxxx_test);
         tensor_destroy(xxxx_test);
     }
-    xxxx_test = net->get_output_tensor("encoder_layers0");
+    xxxx_test = net->get_output_tensor("output_tensor");
     if (tensor_valid(xxxx_test)) {
-        tensor_show("encoder_layers0", xxxx_test);
-        tensor_destroy(xxxx_test);
-    }
-    xxxx_test = net->get_output_tensor("encoder_layers1");
-    if (tensor_valid(xxxx_test)) {
-        tensor_show("encoder_layers1", xxxx_test);
-        tensor_destroy(xxxx_test);
-    }
-    xxxx_test = net->get_output_tensor("encoder_layers2");
-    if (tensor_valid(xxxx_test)) {
-        tensor_show("encoder_layers2", xxxx_test);
-        tensor_destroy(xxxx_test);
-    }
-    xxxx_test = net->get_output_tensor("encoder_layers3");
-    if (tensor_valid(xxxx_test)) {
-        tensor_show("encoder_layers3", xxxx_test);
-        tensor_destroy(xxxx_test);
-    }
-    xxxx_test = net->get_output_tensor("out_feat");
-    if (tensor_valid(xxxx_test)) {
-        tensor_show("out_feat", xxxx_test);
-        tensor_destroy(xxxx_test);
-    }
-    xxxx_test = net->get_output_tensor("out_ab");
-    if (tensor_valid(xxxx_test)) {
-        tensor_show("out_ab", xxxx_test);
+        tensor_show("output_tensor", xxxx_test);
         tensor_destroy(xxxx_test);
     }
 
+    xxxx_test = net->get_output_tensor("model_3");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("model_3", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+    xxxx_test = net->get_output_tensor("model_23");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("model_23", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+    xxxx_test = net->get_output_tensor("model_24");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("model_24", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+    xxxx_test = net->get_output_tensor("model_25");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("model_25", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+    xxxx_test = net->get_output_tensor("model_29");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("model_29", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+    xxxx_test = net->get_output_tensor("model_34");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("model_34", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+
+    xxxx_test = net->get_output_tensor("deconv_1");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("deconv_1", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+    xxxx_test = net->get_output_tensor("deconv_2");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("deconv_2", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+    xxxx_test = net->get_output_tensor("deconv_3");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("deconv_3", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+    xxxx_test = net->get_output_tensor("deconv_4");
+    if (tensor_valid(xxxx_test)) {
+        tensor_show("deconv_4", xxxx_test);
+        tensor_destroy(xxxx_test);
+    }
+
+
     if (tensor_valid(output_tensor)) {
         if (tensor_zeropad_(output_tensor, H, W) == RET_OK) {
-            post_patch_tensor(output_tensor);
+            // post_patch_tensor(output_tensor);
             tensor_saveas_image(output_tensor, 0 /*batch*/, output_filename);
         }
         tensor_destroy(output_tensor);

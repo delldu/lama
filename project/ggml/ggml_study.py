@@ -1730,42 +1730,43 @@ def conv_transpose2d_like_conv2d(x, weight, bias, stride, padding, output_paddin
 
     return output # + bias.reshape(B, out_channels, 1, 1)
 
-def ggml_nn_conv_transpose2d(ctx, x, weight, bias, stride_size):
-    # B, C, H, W = x.size()
-    W = x.contents.ne[0]
-    H = x.contents.ne[1]
+# def ggml_nn_conv_transpose2d(ctx, x, weight, bias, stride_size):
+#     # B, C, H, W = x.size()
+#     W = x.contents.ne[0]
+#     H = x.contents.ne[1]
 
-    # kernel_size, kernel_size, out_channels, in_channels
-    kernel_size = weight.contents.ne[0]    
-    out_channels = weight.contents.ne[2]
-    in_channels = weight.contents.ne[3]
-
-
-    weight = ggml.ggml_cast(ctx, weight, ggml.GGML_TYPE_F16)
-    # struct ggml_tensor * ggml_conv_transpose_2d_p0(
-    #         struct ggml_context * ctx,
-    #         struct ggml_tensor  * a,
-    #         struct ggml_tensor  * b,
-    #         int                   stride);
-    y = ggml.ggml_conv_transpose_2d_p0(ctx, weight, x, stride_size)
-    # output_size = (H - 1) * stride + kernel_size ==> kernel_size - stride
-
-    start = kernel_size - stride_size
-    y = ggml_nn_slice(ctx, y, 0, start, stride_size * W + start, 1)
-    y = ggml_nn_slice(ctx, y, 1, start, stride_size * H + start, 1)
-
-    bias = ggml.ggml_reshape_4d(ctx, bias, 1, 1, out_channels, 1) # import !!!
-    # bias = ggml.ggml_repeat(ctx, bias, y)
-    y = ggml.ggml_add(ctx, y, bias)
-
-    return y
+#     # kernel_size, kernel_size, out_channels, in_channels
+#     kernel_size = weight.contents.ne[0]    
+#     out_channels = weight.contents.ne[2]
+#     in_channels = weight.contents.ne[3]
 
 
+#     weight = ggml.ggml_cast(ctx, weight, ggml.GGML_TYPE_F16)
+#     # struct ggml_tensor * ggml_conv_transpose_2d_p0(
+#     #         struct ggml_context * ctx,
+#     #         struct ggml_tensor  * a,
+#     #         struct ggml_tensor  * b,
+#     #         int                   stride);
+#     y = ggml.ggml_conv_transpose_2d_p0(ctx, weight, x, stride_size)
+#     # output_size = (H - 1) * stride + kernel_size ==> kernel_size - stride
+
+#     start = kernel_size - stride_size
+#     y = ggml_nn_slice(ctx, y, 0, start, stride_size * W + start, 1)
+#     y = ggml_nn_slice(ctx, y, 1, start, stride_size * H + start, 1)
+
+#     bias = ggml.ggml_reshape_4d(ctx, bias, 1, 1, out_channels, 1) # import !!!
+#     # bias = ggml.ggml_repeat(ctx, bias, y)
+#     y = ggml.ggml_add(ctx, y, bias)
+
+
+#     return y
+
+# --------------------------------------------------------------------------------------
 def test_conv_transposed2d():
     print("test_conv_transposed2d ...")
     print(">" * 80)
 
-    in_channels = 2
+    in_channels = 4
     out_channels = in_channels // 2
     kernel_size = 3
     stride_size = 2
@@ -1773,7 +1774,7 @@ def test_conv_transposed2d():
     output_padding = 1
 
     # x = torch.randn(1, in_channels, 128, 128)
-    x = torch.randn(1, in_channels, 4, 4)
+    x = torch.randn(1, in_channels, 128, 128)
 
     B, C, H, W = x.size()
     todos.debug.output_var("x", x)
@@ -1799,7 +1800,15 @@ def test_conv_transposed2d():
     g_x = ggml_tensor(ctx, x)
     g_weight = ggml_tensor(ctx, state_dict['weight'])
     g_bias = ggml_tensor(ctx, state_dict['bias'])
-    gy = ggml_nn_conv_transpose2d(ctx, g_x, g_weight, g_bias, stride_size)
+
+    g_x = ggml.ggml_deconv_pad2d(ctx, g_x, stride_size)
+    g_weight = ggml.ggml_flip(ctx, g_weight, 1, 1, 0, 0) # flip on [0, 1] dims
+    g_weight = ggml.ggml_permute(ctx, g_weight, 0, 1, 3, 2)
+    g_weight = ggml.ggml_cont(ctx, g_weight)
+    g_bias = ggml.ggml_reshape_4d(ctx, g_bias, 1, 1, out_channels, 1) # import !!!
+
+    gy = ggml.ggml_conv_2d(ctx, g_weight, g_x, 1, 1, 1, 1, 1, 1)
+    gy = ggml.ggml_add(ctx, gy, g_bias)
 
     ggml_compute(ctx, gy)
     # --------------------------------------------------------------------------------------
@@ -1821,6 +1830,143 @@ def test_conv_transposed2d():
     print("<" * 80)
 
 
+# -----------------------------------------------
+def test_ggml_constant():
+    '''matrix dot multi'''
+    print("test_ggml_constant ...")
+    print(">" * 80)
+
+    x = torch.randn(2, 3, 128, 256)
+    todos.debug.output_var("x", x)
+
+
+    ctx = ggml_new_ctx()
+    # --------------------------------------------------------------------------------------
+    g_x = ggml_tensor(ctx, x) # ggml_shape("g_a", g_a)
+    g_y = ggml.ggml_constant(ctx, g_x, 0.1234)
+    ggml_compute(ctx, g_y)
+    # --------------------------------------------------------------------------------------
+
+    c_y = torch_tensor(g_y)
+    ggml_free_ctx(ctx)
+
+    todos.debug.output_var("c_y", c_y) # [2, 10, 5, 3]
+    assert c_y.min() == c_y.max()
+    print("<" * 80)
+
+# -----------------------------------------------
+def test_ggml_flip():
+    '''matrix dot multi'''
+    print("test_ggml_flip ...")
+    print(">" * 80)
+
+    x = torch.randn(2, 3, 128, 256)
+    todos.debug.output_var("x", x)
+    torch_x = torch.flip(x, dims=[2, 3])
+
+    ctx = ggml_new_ctx()
+    # --------------------------------------------------------------------------------------
+    g_x = ggml_tensor(ctx, x) # ggml_shape("g_a", g_a)
+    g_y = ggml.ggml_flip(ctx, g_x, 1, 1, 0, 0) # flip on [0, 1] dims, W, H
+    ggml_compute(ctx, g_y)
+    # --------------------------------------------------------------------------------------
+
+    ggml_y = torch_tensor(g_y)
+    ggml_free_ctx(ctx)
+
+    todos.debug.output_var("ggml_y", ggml_y) # [2, 10, 5, 3]
+    todos.debug.output_var("|torch_x - ggml_y|", (torch_x - ggml_y).abs())
+    print("<" * 80)
+
+# -----------------------------------------------
+def test_ggml_deconv_pad2d():
+    '''matrix dot multi'''
+    print("test_ggml_deconv_pad2d ...")
+    print(">" * 80)
+
+    x = torch.randn(2, 3, 128, 256)
+    B, C, H, W = x.size()
+    kernel_size = 3
+    stride = 2
+    padding = 1
+    output_padding = 1
+    # output_padding = stride + 2 * padding - kernel_size ==> H_prime = stride * H
+    assert (stride + 2 * padding - kernel_size >= 0)
+
+    H_prime = (H - 1) * stride - 2 * padding + kernel_size + output_padding
+    W_prime = (W - 1) * stride - 2 * padding + kernel_size + output_padding
+
+    # How to do ?
+    torch_x = torch.zeros((B, C, H_prime, W_prime), dtype=x.dtype, device=x.device)
+    torch_x[:, :, ::stride, ::stride] = x
+    todos.debug.output_var("x", x)
+
+    ctx = ggml_new_ctx()
+    # --------------------------------------------------------------------------------------
+    g_x = ggml_tensor(ctx, x) # ggml_shape("g_a", g_a)
+    g_y = ggml.ggml_deconv_pad2d(ctx, g_x, stride)
+    ggml_compute(ctx, g_y)
+    # --------------------------------------------------------------------------------------
+
+    ggml_y = torch_tensor(g_y)
+    ggml_free_ctx(ctx)
+
+    todos.debug.output_var("torch_x", torch_x)
+    todos.debug.output_var("ggml_y", ggml_y)
+    todos.debug.output_var("|torch_x - ggml_y|", (torch_x - ggml_y).abs())
+    print("<" * 80)
+
+
+def test_ggml_scatter():
+    '''matrix dot multi'''
+    print("test_ggml_scatter ...")
+    print(">" * 80)
+
+    x = torch.randn(2, 3, 8, 8)
+    B, C, H, W = x.size()
+    b = torch.ones(B, C, 2, 8)
+    torch_x = x.slice_scatter(b, dim=2, start=6, end=8, step=1)
+    todos.debug.output_var("x", x)
+
+    ctx = ggml_new_ctx()
+    # --------------------------------------------------------------------------------------
+    g_x = ggml_tensor(ctx, x) # ggml_shape("g_a", g_a)
+    g_b = ggml_tensor(ctx, b)
+    ggml_shape("g_x", g_x)
+    ggml_shape("g_b", g_b)
+    g_y = ggml.ggml_scatter(ctx, g_x, g_b, 1, 6, 8, 1)
+
+    ggml_compute(ctx, g_y)
+    # --------------------------------------------------------------------------------------
+
+    ggml_y = torch_tensor(g_y)
+    ggml_free_ctx(ctx)
+
+    todos.debug.output_var("torch_x", torch_x)
+    todos.debug.output_var("ggml_y", ggml_y)
+    todos.debug.output_var("|torch_x - ggml_y|", (torch_x - ggml_y).abs())
+    print("<" * 80)
+
+def test_basic():
+    x = torch.randn(2, 3, 4, 5)
+    B, C, H, W = x.size()
+
+    ctx = ggml_new_ctx()
+    # --------------------------------------------------------------------------------------
+    g_x = ggml_tensor(ctx, x) # ggml_shape("g_a", g_a)
+
+    print("ne:", g_x.contents.ne[:4])
+    print("nb:",g_x.contents.nb[:4])
+
+    g_y = ggml.ggml_dup_tensor(ctx, g_x)
+
+    ggml_compute(ctx, g_y)
+    # --------------------------------------------------------------------------------------
+    ggml_y = torch_tensor(g_y)
+    ggml_free_ctx(ctx)
+
+    todos.debug.output_var("x", x)
+    todos.debug.output_var("ggml_y", ggml_y)
 
 
 # 1)
@@ -1903,4 +2049,18 @@ def test_conv_transposed2d():
 # test_ggml_rfft2()
 
 # 25)
-test_conv_transposed2d()
+# test_conv_transposed2d()
+
+# 26) OK
+# test_ggml_constant()
+
+# 27) OK
+# test_ggml_flip()
+
+# 28) OK
+# test_ggml_deconv_pad2d()
+
+# 29
+# test_ggml_scatter()
+
+test_basic()

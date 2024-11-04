@@ -405,21 +405,45 @@ ggml_tensor_t* ggml_nn_conv_2d(ggml_context_t* ctx, ggml_tensor_t* x, ggml_tenso
 ggml_tensor_t* ggml_nn_conv_transpose_2d(ggml_context_t* ctx, ggml_tensor_t* x, ggml_tensor_t* w,
     ggml_tensor_t* b, int stride, int padding, int output_padding)
 {
-    // xxxx_debug ...
-    // if (b != NULL) {
-    //     b = ggml_cont(ctx, ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1));
-    //     x = ggml_add(ctx, x, b);
-    // }
-    // return x;
-    int W = (int)x->ne[0];
-    int H = (int)x->ne[1];
-    int C = (int)x->ne[2];
-    int B = (int)x->ne[3];
-    // state_dict['weight'] = torch.randn(in_channels, out_channels, kernel_size, kernel_size)
-    C = w->ne[2];
+    int kernel_size = (int)w->ne[0];
+    int out_channels = (int)w->ne[2];
+    int in_channels = (int)w->ne[3];
 
-    // return ggml_upscale_ext(ctx, x, stride*W, stride*H, C, B);
-    return ggml_new_tensor_4d(ctx, GGML_TYPE_F32, stride*W, stride*H, C, B);
+    // ggml_set_name(x, "deconv_1");
+    // ggml_set_output(x);
+
+    x = ggml_deconv_pad2d(ctx, x, stride);
+    ggml_set_name(x, "deconv_2");
+    ggml_set_output(x);
+
+    w = ggml_cont(ctx, ggml_cast(ctx, w, GGML_TYPE_F32));
+    w = ggml_flip(ctx, w, 1, 1, 0, 0); // flip on dims = [0, 1]
+    w = ggml_cont(ctx, ggml_cast(ctx, w, GGML_TYPE_F16));
+    w = ggml_cont(ctx, ggml_permute(ctx, w, 0, 1, 3, 2));
+    ggml_set_name(w, "deconv_3");
+    ggml_set_output(w);
+
+    b = ggml_reshape_4d(ctx, b, 1, 1, out_channels, 1); // import !!!
+
+
+    ggml_tensor_t *y = ggml_conv_2d(ctx, w, x, 1, 1, 1, 1, 1, 1);
+    y = ggml_add(ctx, y, b);
+    ggml_set_name(y, "deconv_4");
+    ggml_set_output(y);
+
+    // need output padding ?
+    // (H - 1) * stride - 2 * padding + kernel_size + output_padding
+    //  - H * stride
+    // ==> -stride - 2*padding + kernel_size + output_padding;
+    int pad_size = -stride - 2*padding + kernel_size + output_padding;
+    if (pad_size > 0) {
+        CheckPoint("xxxx1");
+        y = ggml_pad(ctx, y, 0, 0, pad_size, pad_size);
+    } else {
+        CheckPoint("xxxx2");
+    }
+
+    return y;
 }
 
 
